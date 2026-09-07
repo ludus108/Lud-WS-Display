@@ -1,0 +1,46 @@
+# ==========================
+# BACKUP FILES
+# ==========================
+*.bak
+*.old
+*.tmp
+*~
+
+# ==========================
+# ARDUINO BUILD FILES
+# ==========================
+/build/
+/build.*/
+*.ino.pre.cpp
+*.ino.d
+*.ino.elf
+*.ino.eep
+*.ino.with_bootloader.bin
+*.ino.bootloader.bin
+*.ino.partitions.bin
+*.ino.bin
+*.elf
+*.hex
+
+# ==========================
+# SYSTEM FILES
+# ==========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.swn
+*.log
+
+# ==========================
+# IDE SETTINGS (opzionale)
+# ==========================
+.vscode/
+.idea/
+*.code-workspace
+
+# ==========================
+# SD CARD DATA (da non versionare)
+# ==========================
+/data/
+/sd/
