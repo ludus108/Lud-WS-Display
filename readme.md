@@ -34,3 +34,4 @@ Basato su \*\*ESP32‑S3\*\* con \*\*LVGL\*\* su touch 800×480.
 
 📖 README completo e setup: vedi sezione dedicata.
 
+"# Lud-WS-Display" 
