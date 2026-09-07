@@ -4,9 +4,9 @@
 
 Firmware per display master della workstation analogica ibrida LUD-WS.  
 
-Basato su \*\*ESP32‑S3\*\* con \*\*LVGL\*\* su touch 800×480.
+Basato su \*\*LVGL\*\* con touch 800×480.
 
-
+// Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 
 \- Gestione preset su SD (Synth A/B)
 
