@@ -159,9 +159,7 @@ void setup() {
     log_add("LUD WS avviato", lv_color_hex(0x00FF00));
     char b[16]; snprintf(b, sizeof(b), "Lum: %d%%", g.bright);
     log_add(b, lv_color_hex(0xFFFFFF));
-    sendPing('C');
-    log_add("Ctrl - ping.....", lv_color_hex(0xFFFFFF));
-    log_add("-----------------------------", lv_color_hex(0xFFFFFF));
+   discover_all_mcu();
     delay(2000);
 }
 
