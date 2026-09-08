@@ -154,13 +154,17 @@ void setup() {
         log_add("SD: ERRORE", lv_color_hex(0xFF0000));
     }
 
-    resetPingStatus();
-    delay(1000);
+    // MCU Discovery
+    delay(500);
     log_add("LUD WS avviato", lv_color_hex(0x00FF00));
-    char b[16]; snprintf(b, sizeof(b), "Lum: %d%%", g.bright);
+    char b[16]; 
+    snprintf(b, sizeof(b), "Lum: %d%%", g.bright);
     log_add(b, lv_color_hex(0xFFFFFF));
-   discover_all_mcu();
-    delay(2000);
+    log_add("MCU Discovery...", lv_color_hex(0xFFFF00));
+    log_add("-----------------------------", lv_color_hex(0xFFFFFF));
+    delay(500);
+    discover_all_mcu();  // Ping a TUTTI gli MCU (una sola volta)
+    delay(500);
 }
 
 // ========================== LOOP ==========================
