@@ -1,6 +1,6 @@
 \# 🎛️ LUD-WS – Display Controller
 
-
+V 0. 0. 9
 
 Firmware per display master della workstation analogica ibrida LUD-WS.  
 
