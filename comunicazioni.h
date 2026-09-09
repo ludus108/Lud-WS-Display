@@ -447,7 +447,7 @@ static void process_frame(Frame *frame) {
  * Main serial reader - call in loop()
  * Processa un byte alla volta (non-bloccante)
  */
-static void leggiSer() {
+void leggiSer() {
     static Frame current_frame;
     
     while (Serial1.available() > 0) {
@@ -464,7 +464,7 @@ static void leggiSer() {
  * Aspetta risposte per PING_TIMEOUT_MS
  */
 static void discover_all_mcu() {
-    reset_ping_status();
+    resetPingStatus();
     
     // Invia ping a tutti i synth/devices (escluso Display)
     send_ping('a');  // Synth A1
@@ -491,7 +491,7 @@ static void discover_all_mcu() {
 /**
  * Inizializza status MCU
  */
-static void reset_ping_status() {
+void resetPingStatus() {
     memset(&mcu_status, 0, sizeof(mcu_status));
     mcu_status.ping_counter = 0;
     mcu_status.all_mcu_ok = false;
