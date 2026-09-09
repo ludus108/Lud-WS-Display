@@ -460,6 +460,37 @@ void leggiSer() {
 }
 
 /**
+ * Debug: stampa status di tutti gli MCU
+ */
+static void print_mcu_status() {
+    Serial.println("\n╔════════════════════════════════════╗");
+    Serial.println("║         MCU DISCOVERY REPORT       ║");
+    Serial.println("╠════════════════════════════════════╣");
+    
+    int online_count = 0;
+    for (int i = 0; i < MAX_MCU; i++) {
+        Serial.print("║ ");
+        Serial.print(MCU_NAMES[i]);
+        for (int j = strlen(MCU_NAMES[i]); j < 20; j++) Serial.print(" ");
+        
+        if (mcu_status.online[i]) {
+            Serial.println("  ✅ ONLINE   ║");
+            online_count++;
+        } else {
+            Serial.println("  ❌ OFFLINE  ║");
+        }
+    }
+    
+    Serial.println("╠════════════════════════════════════╣");
+    Serial.print("║ TOTAL: ");
+    Serial.print(online_count);
+    Serial.print("/");
+    Serial.print(MAX_MCU);
+    Serial.println(" MCU online        ║");
+    Serial.println("╚════════════════════════════════════╝\n");
+}
+
+/**
  * Invia ping a tutti gli MCU (SETUP ONLY)
  * Aspetta risposte per PING_TIMEOUT_MS
  */
@@ -507,37 +538,6 @@ static bool is_mcu_online(char mcu_id) {
         }
     }
     return false;
-}
-
-/**
- * Debug: stampa status di tutti gli MCU
- */
-static void print_mcu_status() {
-    Serial.println("\n╔════════════════════════════════════╗");
-    Serial.println("║         MCU DISCOVERY REPORT       ║");
-    Serial.println("╠════════════════════════════════════╣");
-    
-    int online_count = 0;
-    for (int i = 0; i < MAX_MCU; i++) {
-        Serial.print("║ ");
-        Serial.print(MCU_NAMES[i]);
-        for (int j = strlen(MCU_NAMES[i]); j < 20; j++) Serial.print(" ");
-        
-        if (mcu_status.online[i]) {
-            Serial.println("  ✅ ONLINE   ║");
-            online_count++;
-        } else {
-            Serial.println("  ❌ OFFLINE  ║");
-        }
-    }
-    
-    Serial.println("╠════════════════════════════════════╣");
-    Serial.print("║ TOTAL: ");
-    Serial.print(online_count);
-    Serial.print("/");
-    Serial.print(MAX_MCU);
-    Serial.println(" MCU online        ║");
-    Serial.println("╚════════════════════════════════════╝\n");
 }
 
 #endif
