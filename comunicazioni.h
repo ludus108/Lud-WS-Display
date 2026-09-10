@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include "globals.h"
-
+#include "serial_protocol.h"
 // ========================== PROTOCOL CONSTANTS ==========================
 #define FRAME_START     0x02  // STX (Start of Text)
 #define FRAME_END       0x03  // ETX (End of Text)
@@ -13,7 +13,7 @@
 #define SERIAL_BAUDRATE 115200
 
 // ========================== MCU IDENTIFIERS ==========================
-#define ID_DISPLAY  'D'
+#define ID_DISPLAY  'D' // this one
 #define ID_SYNTH_A1 'a'
 #define ID_SYNTH_A2 'b'
 #define ID_SYNTH_A3 'c'
