@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "globals.h"
+#include "serial_protocol.h"
 
 // ========================== PROTOCOL CONSTANTS ==========================
 #define FRAME_START     0x02  // STX (Start of Text)
@@ -36,16 +37,7 @@
 #define CMD_STATUS      'Z'   // Status report
 
 // ========================== FRAME STRUCTURE ==========================
-struct Frame {
-    uint8_t start;      // FRAME_START
-    uint8_t sender;     // Sender MCU ID
-    uint8_t cmd;        // Command code
-    uint8_t target;     // Target MCU ID
-    uint8_t len;        // Data length (0-60)
-    uint8_t data[60];   // Payload data
-    uint8_t crc;        // CRC8 checksum
-    uint8_t end;        // FRAME_END
-} __packed;
+using Frame = LwsFrame;
 
 // ========================== PARAMETER MAPPING ==========================
 struct ParamMapA { 
@@ -179,6 +171,8 @@ static bool escape_next = false;
  * Ritorna true se frame completo ricevuto
  */
 static bool parse_frame_byte(uint8_t byte, Frame *out_frame) {
+    return lws_parse_byte(byte, *out_frame);
+/*
     // Cerca start marker
     if (!frame_in_progress && byte == FRAME_START) {
         frame_pos = 0;
@@ -254,6 +248,7 @@ static bool parse_frame_byte(uint8_t byte, Frame *out_frame) {
     }
     
     return false;
+*/
 }
 
 // ========================== TRANSMISSION FUNCTIONS ==========================
@@ -262,11 +257,8 @@ static bool parse_frame_byte(uint8_t byte, Frame *out_frame) {
  * Invia PING per discovery (solo in setup)
  */
 static void send_ping(char target_mcu) {
-    uint8_t data[1] = {0};
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t len = build_frame(buffer, ID_DISPLAY, CMD_PING, target_mcu, data, 0);
-    
-    Serial1.write(buffer, len);
+    uint8_t payload[1] = {(uint8_t)target_mcu};
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_PING, payload, 1);
     
     // Debug
     for (int i = 0; i < MAX_MCU; i++) {
@@ -284,10 +276,8 @@ static void send_ping(char target_mcu) {
  * Invia PONG response
  */
 static void send_pong(char target_mcu) {
-    uint8_t data[1] = {0};
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t len = build_frame(buffer, ID_DISPLAY, CMD_PONG, target_mcu, data, 0);
-    Serial1.write(buffer, len);
+    uint8_t payload[1] = {(uint8_t)target_mcu};
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_PONG, payload, 1);
 }
 
 /**
@@ -297,10 +287,8 @@ static void send_pong(char target_mcu) {
  * value: valore 0-255
  */
 static void send_param_update(char target, char param_key, uint8_t value) {
-    uint8_t data[2] = {(uint8_t)param_key, value};
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t len = build_frame(buffer, ID_DISPLAY, CMD_PARAM, target, data, 2);
-    Serial1.write(buffer, len);
+    uint8_t payload[3] = {(uint8_t)target, (uint8_t)param_key, value};
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_PARAM, payload, 3);
     
     Serial.print("📤 Param: target=");
     Serial.print(target);
@@ -314,14 +302,12 @@ static void send_param_update(char target, char param_key, uint8_t value) {
  * Invia ERROR report
  */
 static void send_error(char target, const char *error_msg) {
-    uint8_t data[60];
+    uint8_t payload[60];
     size_t len = strlen(error_msg);
-    if (len > 60) len = 60;
-    memcpy(data, (uint8_t*)error_msg, len);
-    
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t frame_len = build_frame(buffer, ID_DISPLAY, CMD_ERROR, target, data, len);
-    Serial1.write(buffer, frame_len);
+    if (len > 59) len = 59;
+    payload[0] = (uint8_t)target;
+    memcpy(&payload[1], error_msg, len);
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_ERROR, payload, (uint8_t)(len + 1));
 }
 
 // ========================== RECEIVING & PROCESSING ==========================
@@ -373,10 +359,10 @@ static void process_frame(Frame *frame) {
         
         case CMD_PARAM: {
             // Synth invia aggiornamento parametro (feedback)
-            if (frame->len >= 2) {
-                char param_key = (char)frame->data[0];
-                uint8_t value = frame->data[1];
-                char target = frame->target;
+            if (frame->len >= 3) {
+                char target = (char)frame->data[0];
+                char param_key = (char)frame->data[1];
+                uint8_t value = frame->data[2];
                 
                 Serial.print("📥 Param from ");
                 Serial.print(sender_name);
@@ -408,9 +394,11 @@ static void process_frame(Frame *frame) {
         case CMD_ERROR: {
             // Errore ricevuto da MCU
             char error_msg[61];
-            if (frame->len > 60) frame->len = 60;
-            memcpy(error_msg, frame->data, frame->len);
-            error_msg[frame->len] = '\0';
+            uint8_t message_offset = frame->len > 0 ? 1 : 0;
+            uint8_t message_len = frame->len - message_offset;
+            if (message_len > 60) message_len = 60;
+            memcpy(error_msg, &frame->data[message_offset], message_len);
+            error_msg[message_len] = '\0';
             
             Serial.print("❌ ERROR from ");
             Serial.print(sender_name);
