@@ -1,11 +1,15 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 /**
+
  * LUD-WS - Display Versione 0.0.11
  * ============================================================
+ * - aggiunto:
+ 
  * - Protocollo LWSv1 unificato (condiviso con Router e nodi)
  * - Discovery MCU non bloccante, riavviabile da SET UP
  * - 6 arc/pot in Synth A/MOD (Data_Pot_1..6) con pallino rosso
  *   e label valore sotto l'arc
+ 
  */
 #include <Arduino.h>
 #include <esp_display_panel.hpp>
