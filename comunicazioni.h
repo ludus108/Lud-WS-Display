@@ -5,16 +5,8 @@
 #include "globals.h"
 #include "serial_protocol.h"
 
-// ========================== PROTOCOL CONSTANTS ==========================
-#define FRAME_START     0x02  // STX (Start of Text)
-#define FRAME_END       0x03  // ETX (End of Text)
-#define FRAME_ESCAPE    0x1B  // ESC (per escape byte speciali)
-#define MAX_FRAME_SIZE  64
-#define PING_TIMEOUT_MS 2000  // Timeout per discovery iniziale
-#define SERIAL_BAUDRATE 115200
-
 // ========================== MCU IDENTIFIERS ==========================
-#define ID_DISPLAY  'D' // this one
+#define ID_DISPLAY  'D'
 #define ID_SYNTH_A1 'a'
 #define ID_SYNTH_A2 'b'
 #define ID_SYNTH_A3 'c'
@@ -25,35 +17,20 @@
 #define ID_TEENSY   'T'
 #define ID_POWER    'P'
 
-#define MAX_MCU  9
+#define MAX_MCU         9
+#define PING_TIMEOUT_MS 2000
 
-// ========================== COMMAND CODES ==========================
-#define CMD_PING        'p'   // Heartbeat/Discovery
-#define CMD_PONG        'P'   // Ping response
-#define CMD_PARAM       'S'   // Set parameter
-#define CMD_GET_PARAM   'G'   // Get parameter request
-#define CMD_PARAM_ACK   'A'   // Parameter acknowledge
-#define CMD_ERROR       'E'   // Error message
-#define CMD_STATUS      'Z'   // Status report
-
-// ========================== FRAME STRUCTURE ==========================
-struct Frame {
-    uint8_t start;      // FRAME_START
-    uint8_t sender;     // Sender MCU ID
-    uint8_t cmd;        // Command code
-    uint8_t target;     // Target MCU ID
-    uint8_t len;        // Data length (0-60)
-    uint8_t data[60];   // Payload data
-    uint8_t crc;        // CRC8 checksum
-    uint8_t end;        // FRAME_END
-} __packed;
+// ========================== COMMAND CODES (LWSv1) ==========================
+#define CMD_PING        'p'
+#define CMD_PONG        'P'
+#define CMD_PARAM       'S'
+#define CMD_GET_PARAM   'G'
+#define CMD_PARAM_ACK   'A'
+#define CMD_ERROR       'E'
+#define CMD_STATUS      'Z'
 
 // ========================== PARAMETER MAPPING ==========================
-struct ParamMapA {
-    char key;
-    uint8_t index;
-};
-
+struct ParamMapA { char key; uint8_t index; };
 static const ParamMapA mapA[] = {
     {'a', wave_mode_A},    {'b', wave_A},          {'c', shape_A},         {'d', shape_lev_A},
     {'e', shape_rate_A},   {'f', lfo_pitch_lev_A}, {'g', cutOff_A},        {'h', res_A},
@@ -64,11 +41,7 @@ static const ParamMapA mapA[] = {
 };
 static const uint8_t MAPA_SIZE = sizeof(mapA) / sizeof(mapA[0]);
 
-struct ParamMapB {
-    char key;
-    uint8_t index;
-};
-
+struct ParamMapB { char key; uint8_t index; };
 static const ParamMapB mapB[] = {
     {'a', wave_mode_B},    {'b', wave_B},          {'c', shape_B},         {'d', shape_lev_B},
     {'e', shape_rate_B},   {'f', lfo_pitch_lev_B}, {'g', vcf_mode_B},      {'h', cutOff_1_B},
@@ -80,309 +53,122 @@ static const ParamMapB mapB[] = {
 };
 static const uint8_t MAPB_SIZE = sizeof(mapB) / sizeof(mapB[0]);
 
-// ========================== MCU STATUS TRACKING ==========================
+// ========================== MCU STATUS ==========================
 static struct {
-    bool online[MAX_MCU];
+    bool    online[MAX_MCU];
     uint8_t ping_counter;
-    bool all_mcu_ok;
+    bool    all_mcu_ok;
 } mcu_status = {};
 
 static const char* MCU_NAMES[MAX_MCU] = {
     "Display", "Synth A1", "Synth A2", "Synth A3",
-    "Synth B", "Router", "Ctrl", "Mod", "Teensy"
+    "Synth B", "Router",   "Ctrl",     "Mod",     "Teensy"
 };
-
 static const char MCU_IDS[MAX_MCU] = {
     ID_DISPLAY, ID_SYNTH_A1, ID_SYNTH_A2, ID_SYNTH_A3,
-    ID_SYNTH_B, ID_ROUTER, ID_CTRL, ID_MOD, ID_TEENSY
+    ID_SYNTH_B, ID_ROUTER,   ID_CTRL,     ID_MOD,     ID_TEENSY
 };
 
-// ========================== CRC8 CALCULATION ==========================
-static uint8_t calculate_crc8(uint8_t *data, size_t len) {
-    uint8_t crc = 0x00;
-    for (size_t i = 0; i < len; i++) {
-        crc ^= data[i];
-        for (int j = 0; j < 8; j++) {
-            if (crc & 0x80) crc = (crc << 1) ^ 0xD5;
-            else crc = crc << 1;
-        }
-    }
-    return crc;
-}
+static LwsParser lwsDisplayParser;
 
-// ========================== FRAME BUILDER ==========================
-static size_t build_frame(uint8_t *buffer, uint8_t sender, uint8_t cmd,
-                          uint8_t target, uint8_t *data, size_t data_len) {
-    if (data_len > 60) data_len = 60;
-
-    size_t pos = 0;
-    buffer[pos++] = FRAME_START;
-    buffer[pos++] = sender;
-    buffer[pos++] = cmd;
-    buffer[pos++] = target;
-    buffer[pos++] = (uint8_t)data_len;
-
-    for (size_t i = 0; i < data_len; i++) {
-        if (data[i] == FRAME_START || data[i] == FRAME_END || data[i] == FRAME_ESCAPE) {
-            buffer[pos++] = FRAME_ESCAPE;
-            buffer[pos++] = data[i] ^ 0xFF;
-        } else {
-            buffer[pos++] = data[i];
-        }
-    }
-
-    uint8_t crc_data[4 + 60];
-    crc_data[0] = sender;
-    crc_data[1] = cmd;
-    crc_data[2] = target;
-    crc_data[3] = (uint8_t)data_len;
-    if (data_len > 0) memcpy(&crc_data[4], data, data_len);
-
-    uint8_t crc = calculate_crc8(crc_data, 4 + data_len);
-    buffer[pos++] = crc;
-    buffer[pos++] = FRAME_END;
-    return pos;
-}
-
-// ========================== FRAME PARSER ==========================
-static uint8_t frame_buffer[MAX_FRAME_SIZE];
-static size_t frame_pos = 0;
-static bool frame_in_progress = false;
-static bool escape_next = false;
-
-static bool parse_frame_byte(uint8_t byte, Frame *out_frame) {
-    if (!frame_in_progress && byte == FRAME_START) {
-        frame_pos = 0;
-        frame_in_progress = true;
-        escape_next = false;
-        return false;
-    }
-
-    if (!frame_in_progress) return false;
-
-    if (escape_next) {
-        frame_buffer[frame_pos++] = byte ^ 0xFF;
-        escape_next = false;
-        return false;
-    }
-
-    if (byte == FRAME_ESCAPE) {
-        escape_next = true;
-        return false;
-    }
-
-    if (byte == FRAME_END) {
-        if (frame_pos < 5) {
-            frame_pos = 0;
-            frame_in_progress = false;
-            escape_next = false;
-            return false;
-        }
-
-        uint8_t received_crc = frame_buffer[frame_pos - 1];
-        uint8_t calculated_crc = calculate_crc8(frame_buffer, frame_pos - 1);
-
-        if (received_crc != calculated_crc) {
-            Serial.print("CRC error (got ");
-            Serial.print(received_crc);
-            Serial.print(" expected ");
-            Serial.print(calculated_crc);
-            Serial.println(")");
-            frame_pos = 0;
-            frame_in_progress = false;
-            escape_next = false;
-            return false;
-        }
-
-        out_frame->sender = frame_buffer[0];
-        out_frame->cmd = frame_buffer[1];
-        out_frame->target = frame_buffer[2];
-        out_frame->len = frame_buffer[3];
-        if (out_frame->len > 60) out_frame->len = 60;
-        memcpy(out_frame->data, &frame_buffer[4], out_frame->len);
-        out_frame->crc = received_crc;
-
-        frame_pos = 0;
-        frame_in_progress = false;
-        escape_next = false;
-        return true;
-    }
-
-    if (frame_pos < MAX_FRAME_SIZE - 1) {
-        frame_buffer[frame_pos++] = byte;
-    } else {
-        Serial.println("Buffer overflow");
-        frame_pos = 0;
-        frame_in_progress = false;
-        escape_next = false;
-        return false;
-    }
-
-    return false;
-}
-
-// ========================== TRANSMISSION FUNCTIONS ==========================
+// ========================== TX ==========================
 static void send_ping(char target_mcu) {
-    uint8_t data[1] = {0};
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t len = build_frame(buffer, ID_DISPLAY, CMD_PING, target_mcu, data, 0);
-    Serial1.write(buffer, len);
-
+    uint8_t p[1] = { (uint8_t)target_mcu };
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_PING, p, 1);
     for (int i = 0; i < MAX_MCU; i++) {
         if (MCU_IDS[i] == target_mcu) {
-            Serial.print("Ping -> ");
-            Serial.println(MCU_NAMES[i]);
+            Serial.print("Ping -> "); Serial.println(MCU_NAMES[i]);
             return;
         }
     }
-    Serial.print("Ping -> MCU ");
-    Serial.println((char)target_mcu);
 }
 
-static void send_pong(char target_mcu) {
-    uint8_t data[1] = {0};
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t len = build_frame(buffer, ID_DISPLAY, CMD_PONG, target_mcu, data, 0);
-    Serial1.write(buffer, len);
+static void send_pong() {
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_PONG, nullptr, 0);
 }
 
 static void send_param_update(char target, char param_key, uint8_t value) {
-    uint8_t data[2] = {(uint8_t)param_key, value};
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t len = build_frame(buffer, ID_DISPLAY, CMD_PARAM, target, data, 2);
-    Serial1.write(buffer, len);
-
-    Serial.print("Param: target=");
-    Serial.print(target);
-    Serial.print(" key=");
-    Serial.print(param_key);
-    Serial.print(" val=");
-    Serial.println(value);
+    uint8_t p[3] = { (uint8_t)target, (uint8_t)param_key, value };
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_PARAM, p, 3);
 }
 
 static void send_error(char target, const char *error_msg) {
-    uint8_t data[60];
-    size_t len = strlen(error_msg);
-    if (len > 60) len = 60;
-    memcpy(data, (const uint8_t*)error_msg, len);
-
-    uint8_t buffer[MAX_FRAME_SIZE];
-    size_t frame_len = build_frame(buffer, ID_DISPLAY, CMD_ERROR, target, data, len);
-    Serial1.write(buffer, frame_len);
+    uint8_t p[64];
+    size_t l = strlen(error_msg);
+    if (l > 62) l = 62;
+    p[0] = (uint8_t)target;
+    memcpy(&p[1], error_msg, l);
+    lws_send_frame(Serial1, ID_DISPLAY, CMD_ERROR, p, 1 + (uint8_t)l);
 }
 
-// ========================== RECEIVING & PROCESSING ==========================
-static void process_frame(Frame *frame) {
+// ========================== RX ==========================
+static void process_frame(const LwsFrame &f) {
     char sender_name[16] = "???";
     for (int i = 0; i < MAX_MCU; i++) {
-        if (MCU_IDS[i] == frame->sender) {
-            strcpy(sender_name, MCU_NAMES[i]);
-            break;
-        }
+        if (MCU_IDS[i] == (char)f.sender) { strcpy(sender_name, MCU_NAMES[i]); break; }
     }
 
-    switch (frame->cmd) {
-        case CMD_PONG: {
-            Serial.print("PONG from ");
-            Serial.println(sender_name);
+    switch ((char)f.cmd) {
+        case CMD_PING:
+            send_pong();
+            break;
 
+        case CMD_PONG: {
             for (int i = 0; i < MAX_MCU; i++) {
-                if (MCU_IDS[i] == frame->sender) {
+                if (MCU_IDS[i] == (char)f.sender && !mcu_status.online[i]) {
                     mcu_status.online[i] = true;
                     mcu_status.ping_counter++;
                     break;
                 }
             }
-
             log_add(sender_name, lv_color_hex(0x00FF00));
-
-            if (mcu_status.ping_counter >= (MAX_MCU - 1)) {
-                mcu_status.all_mcu_ok = true;
-                Serial.println("Tutti gli MCU sono online!");
-                log_add("Tutti gli MCU OK!", lv_color_hex(0x00FF00));
-            }
             break;
         }
 
         case CMD_PARAM_ACK:
-            Serial.print("Param ACK from ");
-            Serial.println(sender_name);
+            Serial.print("Param ACK from "); Serial.println(sender_name);
             break;
 
         case CMD_PARAM: {
-            if (frame->len >= 2) {
-                char param_key = (char)frame->data[0];
-                uint8_t value = frame->data[1];
-                char target = frame->target;
-
-                Serial.print("Param from ");
-                Serial.print(sender_name);
-                Serial.print(": ");
-                Serial.print(param_key);
-                Serial.print("=");
-                Serial.println(value);
-
+            if (f.len >= 3) {
+                char    target = (char)f.data[0];
+                char    key    = (char)f.data[1];
+                uint8_t val    = f.data[2];
                 if (target == 'A') {
-                    for (uint8_t i = 0; i < MAPA_SIZE; i++) {
-                        if (mapA[i].key == param_key) {
-                            timbrA[presetNumA][mapA[i].index] = value;
-                            break;
-                        }
-                    }
+                    for (uint8_t i = 0; i < MAPA_SIZE; i++)
+                        if (mapA[i].key == key) { timbrA[presetNumA][mapA[i].index] = val; break; }
                 } else if (target == 'B') {
-                    for (uint8_t i = 0; i < MAPB_SIZE; i++) {
-                        if (mapB[i].key == param_key) {
-                            timbrB[presetNumB][mapB[i].index] = value;
-                            break;
-                        }
-                    }
+                    for (uint8_t i = 0; i < MAPB_SIZE; i++)
+                        if (mapB[i].key == key) { timbrB[presetNumB][mapB[i].index] = val; break; }
                 }
             }
             break;
         }
 
         case CMD_ERROR: {
-            char error_msg[61];
-            if (frame->len > 60) frame->len = 60;
-            memcpy(error_msg, frame->data, frame->len);
-            error_msg[frame->len] = '\0';
-
-            Serial.print("ERROR from ");
-            Serial.print(sender_name);
-            Serial.print(": ");
-            Serial.println(error_msg);
-            log_add(error_msg, lv_color_hex(0xFF0000));
-
-            for (int i = 0; i < MAX_MCU; i++) {
-                if (MCU_IDS[i] == frame->sender) {
-                    mcu_status.online[i] = false;
-                    break;
-                }
+            char msg[64] = {0};
+            if (f.len >= 2) {
+                size_t l = f.len - 1;
+                if (l > 62) l = 62;
+                memcpy(msg, &f.data[1], l);
+                msg[l] = '\0';
             }
+            log_add(msg, lv_color_hex(0xFF0000));
+            for (int i = 0; i < MAX_MCU; i++)
+                if (MCU_IDS[i] == (char)f.sender) { mcu_status.online[i] = false; break; }
             break;
         }
 
-        case CMD_STATUS:
-            Serial.print("STATUS from ");
-            Serial.println(sender_name);
-            break;
-
         default:
-            Serial.print("Unknown command (");
-            Serial.print((char)frame->cmd);
-            Serial.print(") from ");
-            Serial.println(sender_name);
             break;
     }
 }
 
 void leggiSer() {
-    static Frame current_frame;
     while (Serial1.available() > 0) {
-        uint8_t byte = Serial1.read();
-        if (parse_frame_byte(byte, &current_frame)) {
-            process_frame(&current_frame);
-        }
+        uint8_t b = (uint8_t)Serial1.read();
+        LwsFrame f;
+        if (lwsDisplayParser.feed(b, f)) process_frame(f);
     }
 }
 
@@ -390,55 +176,129 @@ static void print_mcu_status() {
     Serial.println("\n=== MCU DISCOVERY REPORT ===");
     int online_count = 0;
     for (int i = 0; i < MAX_MCU; i++) {
-        Serial.print("- ");
-        Serial.print(MCU_NAMES[i]);
-        Serial.print(": ");
-        if (mcu_status.online[i]) {
-            Serial.println("ONLINE");
-            online_count++;
-        } else {
-            Serial.println("OFFLINE");
-        }
+        Serial.print("- "); Serial.print(MCU_NAMES[i]); Serial.print(": ");
+        if (mcu_status.online[i]) { Serial.println("ONLINE"); online_count++; }
+        else                        Serial.println("OFFLINE");
     }
-    Serial.print("TOTAL: ");
-    Serial.print(online_count);
-    Serial.print("/");
-    Serial.println(MAX_MCU);
+    Serial.print("TOTAL: "); Serial.print(online_count);
+    Serial.print("/");       Serial.println(MAX_MCU);
 }
 
 void resetPingStatus() {
     memset(&mcu_status, 0, sizeof(mcu_status));
-    mcu_status.ping_counter = 0;
-    mcu_status.all_mcu_ok = false;
+    lwsDisplayParser.reset();
 }
 
-static void discover_all_mcu() {
+// ========================== DISCOVERY (non bloccante, riavviabile) ==========================
+enum : uint8_t {
+    DISC_IDLE = 0,
+    DISC_START,
+    DISC_PING_SEND,
+    DISC_WAIT,
+    DISC_DONE
+};
+
+static uint8_t  g_disc_state       = DISC_IDLE;
+static uint8_t  g_disc_ping_idx    = 0;
+static uint32_t g_disc_t0          = 0;
+static bool     g_disc_restart     = false;
+static bool     g_discovery_active = false;
+
+static const uint32_t DISC_START_DELAY_MS = 300;
+
+static const char DISC_TARGETS[] = {
+    ID_SYNTH_A1, ID_SYNTH_A2, ID_SYNTH_A3,
+    ID_SYNTH_B,  ID_ROUTER,   ID_CTRL,
+    ID_MOD,      ID_TEENSY,   ID_POWER
+};
+static const uint8_t DISC_TARGET_COUNT = sizeof(DISC_TARGETS);
+static const uint8_t DISC_EXPECTED     = DISC_TARGET_COUNT; // 9
+
+// ---------- API pubblica ----------
+bool discovery_active() {
+    return g_discovery_active;
+}
+
+bool discovery_running() {
+    return (g_disc_state != DISC_IDLE) && (g_disc_state != DISC_DONE);
+}
+
+void discover_all_mcu_start() {
     resetPingStatus();
+    g_discovery_active = true;
+    g_disc_ping_idx    = 0;
+    g_disc_t0          = millis();
+    g_disc_state       = DISC_START;
+    g_disc_restart     = false;
 
-    send_ping('a');
-    send_ping('b');
-    send_ping('c');
-    send_ping('B');
-    send_ping('R');
-    send_ping('C');
-    send_ping('M');
-    send_ping('T');
-    send_ping('P');
-
-    uint32_t start = millis();
-    while (millis() - start < PING_TIMEOUT_MS) {
-        leggiSer();
-        delay(1);
-    }
-
-    print_mcu_status();
+    log_show();
+    log_add("--- Discovery MCU ---", lv_color_hex(0xFFFF00));
 }
 
-static bool is_mcu_online(char mcu_id) {
-    for (int i = 0; i < MAX_MCU; i++) {
-        if (MCU_IDS[i] == mcu_id) return mcu_status.online[i];
+void discover_request_restart() {
+    if (discovery_running()) {
+        log_add("Discovery gia' in corso", lv_color_hex(0xFFAA00));
+        return;
     }
-    return false;
+    g_disc_restart = true;
+    log_show();
+    log_add("Riavvio discovery...", lv_color_hex(0xFFFF00));
+}
+
+static void discover_all_mcu_finish() {
+    print_mcu_status();
+
+    if (mcu_status.ping_counter >= DISC_EXPECTED) {
+        mcu_status.all_mcu_ok = true;
+        log_add("Tutti gli MCU OK!", lv_color_hex(0x00FF00));
+    } else {
+        char buf[40];
+        snprintf(buf, sizeof(buf), "Online: %u/%u",
+                 (unsigned)mcu_status.ping_counter,
+                 (unsigned)DISC_EXPECTED);
+        log_add(buf, lv_color_hex(0xFFAA00));
+    }
+
+    g_discovery_active = false;
+    g.log_t            = millis();
+    g_disc_state       = DISC_DONE;
+}
+
+void discover_all_mcu_poll() {
+    if (g_disc_restart) {
+        g_disc_restart = false;
+        discover_all_mcu_start();
+        return;
+    }
+
+    switch (g_disc_state) {
+        case DISC_IDLE:
+        case DISC_DONE:
+            return;
+
+        case DISC_START:
+            if (millis() - g_disc_t0 >= DISC_START_DELAY_MS)
+                g_disc_state = DISC_PING_SEND;
+            return;
+
+        case DISC_PING_SEND:
+            if (g_disc_ping_idx < DISC_TARGET_COUNT) {
+                send_ping(DISC_TARGETS[g_disc_ping_idx]);
+                g_disc_ping_idx++;
+                return;
+            }
+            g_disc_t0    = millis();
+            g_disc_state = DISC_WAIT;
+            return;
+
+        case DISC_WAIT:
+            if (mcu_status.ping_counter >= DISC_EXPECTED) {
+                discover_all_mcu_finish();
+            } else if (millis() - g_disc_t0 >= PING_TIMEOUT_MS) {
+                discover_all_mcu_finish();
+            }
+            return;
+    }
 }
 
 #endif

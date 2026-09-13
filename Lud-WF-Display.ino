@@ -1,7 +1,11 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 /**
- * LUD-WS - Display Versione 0.0.10
+ * LUD-WS - Display Versione 0.0.11
  * ============================================================
+ * - Protocollo LWSv1 unificato (condiviso con Router e nodi)
+ * - Discovery MCU non bloccante, riavviabile da SET UP
+ * - 6 arc/pot in Synth A/MOD (Data_Pot_1..6) con pallino rosso
+ *   e label valore sotto l'arc
  */
 #include <Arduino.h>
 #include <esp_display_panel.hpp>
@@ -14,6 +18,7 @@
 
 // ========================== INCLUDE GLOBALE ==========================
 #include "globals.h"
+
 // ========================== DEFINIZIONI VARIABILI GLOBALI ==========================
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
@@ -27,7 +32,7 @@ struct ShapeData shape_data[2];
 lv_obj_t *mL=0, *mR=0, *mC=0;
 lv_timer_t *mt=0;
 float pkL=0, pkR=0, pkC=0;
-const char* last_version = "V.0.10";
+const char* last_version = "V.0.11";
 uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
@@ -53,8 +58,8 @@ int grid_selected_idx[2] = {0, 0};
 
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
-    {"SAW", CAT_WF}, {"SAW8", CAT_WF}, {"TRI", CAT_WF},
-    {"SQR", CAT_WF}, {"SINE", CAT_WF}, {"FM 1", CAT_WF},
+    {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},
+    {"SQR", CAT_WF},  {"SINE", CAT_WF}, {"FM 1", CAT_WF},
     {"FM 2", CAT_WF}, {"FM 3", CAT_WF}, {"NOISE", CAT_WF},
     {"FM 1", CAT_FM}, {"FM 2", CAT_FM}, {"FM 3", CAT_FM},
     {"FM 4", CAT_FM}, {"FM 5", CAT_FM}, {"FM 6", CAT_FM},
@@ -102,42 +107,51 @@ void setup() {
     bool sd_ok = sd_init();
 
     randomSeed(analogRead(0));
-    for (int i=0; i<8; i++) {
-        g.pre[i] = random(0,256);
+    for (int i = 0; i < 8; i++) {
+        g.pre[i] = random(0, 256);
     }
     g.pre_shape_A = random(0, 101);
     g.pre_shape_B = random(0, 101);
     g.shape_crs_A = g.shape_crs_B = false;
     g.shape_last_A = g.shape_last_B = 50;
 
-    g.arc_target = random(0, 101);
-    g.arc_value = random(0, 101);
-    g.arc_crossed = false;
-    g.arc_last = 50;
+    // Inizializza i 6 arc/pot (Synth A / MOD)
+    for (int i = 0; i < 6; i++) {
+        g.arc_target[i]      = random(0, 101);
+        g.arc_value[i]       = random(0, 101);
+        g.arc_crossed[i]     = false;
+        g.arc_last[i]        = 50;
+        g.arc_obj[i]         = NULL;
+        g.arc_arrow[i]       = NULL;
+        g.arc_label_value[i] = NULL;
+        g.arc_label_p[i]     = NULL;
+    }
 
-    // PWM
-    ledc_timer_config_t t = {LEDC_LOW_SPEED_MODE, LEDC_TIMER_10_BIT, LEDC_TIMER_0, PWM_FREQ, LEDC_AUTO_CLK};
+    // PWM backlight
+    ledc_timer_config_t t = {LEDC_LOW_SPEED_MODE, LEDC_TIMER_10_BIT, LEDC_TIMER_0,
+                             PWM_FREQ, LEDC_AUTO_CLK};
     ledc_timer_config(&t);
-    ledc_channel_config_t c = {PIN_BL, LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_INTR_DISABLE, LEDC_TIMER_0,
-                               (uint32_t)map(g.bright,0,100,0,1023), 0};
+    ledc_channel_config_t c = {PIN_BL, LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0,
+                               LEDC_INTR_DISABLE, LEDC_TIMER_0,
+                               (uint32_t)map(g.bright, 0, 100, 0, 1023), 0};
     ledc_channel_config(&c);
 
-    // Display
+    // Display + LVGL
     Board *board = new Board();
     board->init();
     assert(board->begin());
     lvgl_port_init(board->getLCD(), board->getTouch());
 
-    // Inizializza nomi e dropdown
-     initPresetNamesA();
-	 initPresetNamesB();
+    // Preset names + dropdown options
+    initPresetNamesA();
+    initPresetNamesB();
     update_preset_dropdown_options();
 
     lvgl_port_lock(-1);
     create_home();
     lvgl_port_unlock();
 
-    // Log e caricamento preset da SD
+    // Log + caricamento preset da SD
     if (sd_ok) {
         log_add("SD: OK", lv_color_hex(0x00FF00));
         if (!loadAllFromSD()) {
@@ -148,32 +162,44 @@ void setup() {
         } else {
             log_add("Preset caricati da SD", lv_color_hex(0x00FF00));
         }
-		update_preset_dropdown_options();
+        update_preset_dropdown_options();
         update_all_targets();
     } else {
         log_add("SD: ERRORE", lv_color_hex(0xFF0000));
     }
 
-    // MCU Discovery
-     char b[16];
+    // Boot messages
+    log_add("LUD WS avviato", lv_color_hex(0x00FF00));
+    char b[16];
     snprintf(b, sizeof(b), "Lum: %d%%", g.bright);
     log_add(b, lv_color_hex(0xFFFFFF));
     log_add("MCU Discovery...", lv_color_hex(0xFFFF00));
     log_add("-----------------------------", lv_color_hex(0xFFFFFF));
 
-    discover_all_mcu_start();   // NON bloccante: parte dal loop()
-  
+    // Discovery NON bloccante: parte e prosegue nel loop()
+    discover_all_mcu_start();
 }
 
 // ========================== LOOP ==========================
 void loop() {
+    // RX LWSv1 dal Router
     if (Serial1.available() > 0) leggiSer();
+
+    // State machine discovery (un ping per ciclo, early-exit se tutti rispondono)
+    discover_all_mcu_poll();
+
+    // UI
     lv_timer_handler();
     delay(5);
 
-    if (g.log_v && !g.err && millis()-g.log_t > LOG_TIMEOUT) log_hide();
+    // Auto-hide del log: solo se discovery conclusa
+    if (g.log_v && !g.err && !discovery_active() && millis() - g.log_t > LOG_TIMEOUT) {
+        log_hide();
+    }
+
+    // Auto-hide del toast
     if (g.toast_v && g.toast && millis() > g.toast_t) {
         lv_obj_add_flag(g.toast, LV_OBJ_FLAG_HIDDEN);
         g.toast_v = false;
-    } 
+    }
 }

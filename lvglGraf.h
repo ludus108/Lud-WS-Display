@@ -30,7 +30,7 @@ void update_wave_plot(lv_obj_t *chart, lv_chart_series_t *serie, uint8_t shape_v
 void update_leds(lv_obj_t **leds, int active_cat);
 void update_slider_color(int idx, bool active);
 void update_shape_slider_color(int synth_id, bool active);
-void arc_with_image(lv_obj_t *parent, int x, int y, int w, int h);
+void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const char *pname);
 void grid_btn_click(lv_event_t *e);
 void earc_changed(lv_event_t *e);
 void initPresetNamesA();
@@ -46,5 +46,6 @@ void update_slider_parameter(int idx, int value);
 void update_slider_target(int idx);
 void update_all_targets();
 void init_sd();
+void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h);
 
 #endif

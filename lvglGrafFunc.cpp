@@ -13,7 +13,11 @@
  lv_obj_t *rename_ta = NULL;
  int rename_preset_idx = 0;
  lv_obj_t *confirm_win = NULL;
-
+ 
+static void disc_btn_click(lv_event_t *e) {
+    (void)e;
+    discover_request_restart();
+}
 // ========================== WIDGET DI BASE ==========================
 void btn(lv_obj_t *p, const char *l, int x, int y, int w, int h, lv_color_t c, int id) {
     lv_obj_t *b = lv_btn_create(p);
@@ -405,90 +409,101 @@ void update_shape_slider_color(int synth_id, bool active) {
 // ========================== ARC ==========================
 void earc_changed(lv_event_t *e) {
     lv_obj_t *arc = lv_event_get_target(e);
-    int cur = lv_arc_get_value(arc);
-    int prev = g.arc_last;
-    int target = g.arc_target;
-    g.arc_value = cur;
+    int idx = (int)(uintptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= 6) return;
 
-    if (g.arc_label_value && lv_obj_is_valid(g.arc_label_value))
-        lv_label_set_text_fmt(g.arc_label_value, "%d", cur);
+    int cur    = lv_arc_get_value(arc);
+    int prev   = g.arc_last[idx];
+    int target = g.arc_target[idx];
+    g.arc_value[idx] = cur;
 
-    if (g.arc_arrow && g.arc_obj && lv_obj_is_valid(g.arc_arrow) && lv_obj_is_valid(g.arc_obj)) {
-        if (!g.arc_crossed) {
+    if (g.arc_label_value[idx] && lv_obj_is_valid(g.arc_label_value[idx]))
+        lv_label_set_text_fmt(g.arc_label_value[idx], "%d", cur);
+
+    if (g.arc_arrow[idx] && g.arc_obj[idx] &&
+        lv_obj_is_valid(g.arc_arrow[idx]) && lv_obj_is_valid(g.arc_obj[idx])) {
+
+        if (!g.arc_crossed[idx]) {
             bool crossed = (prev < target && cur >= target) ||
                            (prev > target && cur <= target) ||
                            (prev == target && cur != target);
             if (crossed) {
-                g.arc_crossed = true;
-                lv_obj_add_flag(g.arc_arrow, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_arc_color(g.arc_obj, lv_color_hex(COLOR_ARC_PASSED), LV_PART_INDICATOR);
+                g.arc_crossed[idx] = true;
+                lv_obj_add_flag(g.arc_arrow[idx], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_arc_color(g.arc_obj[idx], lv_color_hex(COLOR_ARC_PASSED), LV_PART_INDICATOR);
             } else {
-                lv_obj_clear_flag(g.arc_arrow, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_arc_color(g.arc_obj, lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
+                lv_obj_clear_flag(g.arc_arrow[idx], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_arc_color(g.arc_obj[idx], lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
             }
         }
     }
-    g.arc_last = cur;
+    g.arc_last[idx] = cur;
 }
+// ========================== ARC ==========================
+// idx 0..5 -> Data_Pot_1..6 ; pallino rosso, si nasconde quando sorpassato
+void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const char *pname) {
+    if (idx < 0 || idx >= 6) return;
 
-void arc_with_image(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_obj_t *arc = lv_arc_create(parent);
     lv_obj_set_size(arc, w, h);
     lv_obj_set_pos(arc, x, y);
     lv_arc_set_range(arc, 0, 100);
-    lv_arc_set_value(arc, g.arc_value);
+    lv_arc_set_value(arc, g.arc_value[idx]);
 
-    lv_obj_set_style_arc_img_src(arc, &img_arc_bg, LV_PART_MAIN);
+    lv_obj_set_style_arc_img_src(arc, &img_arc_bg,    LV_PART_MAIN);
     lv_obj_set_style_arc_img_src(arc, &img_arc_indic, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
-    g.arc_obj = arc;
+    lv_obj_set_style_arc_color  (arc, lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa     (arc, LV_OPA_TRANSP,  LV_PART_KNOB);
+    g.arc_obj[idx] = arc;
 
+    // ---------- Label P al centro ----------
+    lv_obj_t *plabel = lv_label_create(parent);
+    lv_label_set_text(plabel, pname);
+    lv_obj_set_style_text_color(plabel, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font (plabel, &lv_font_montserrat_20, 0);
+    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, -12);
+    g.arc_label_p[idx] = plabel;
+
+    // ---------- Valore sotto la label P ----------
     lv_obj_t *val_label = lv_label_create(parent);
-    lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(val_label, &lv_font_montserrat_24, 0);
-    lv_label_set_text_fmt(val_label, "%d", g.arc_value);
-    lv_obj_align_to(val_label, arc, LV_ALIGN_CENTER, 0, 0);
-    g.arc_label_value = val_label;
+    lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFAA00), 0);
+    lv_obj_set_style_text_font (val_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text_fmt(val_label, "%d", g.arc_value[idx]);
+    lv_obj_align_to(val_label, arc, LV_ALIGN_CENTER, 0, 12);
+    g.arc_label_value[idx] = val_label;
 
-    lv_obj_t *p1_label = lv_label_create(parent);
-    lv_label_set_text(p1_label, "P1");
-    lv_obj_set_style_text_color(p1_label, lv_color_hex(0x00FF00), 0);
-    lv_obj_set_style_text_font(p1_label, &lv_font_montserrat_18, 0);
-    lv_obj_align_to(p1_label, arc, LV_ALIGN_OUT_TOP_MID, 0, -5);
-    g.arc_label_p1 = p1_label;
-
-    int angle = (g.arc_target * 360 / 100) - 90;
+    // ---------- Pallino ROSSO ----------
+    int angle = (g.arc_target[idx] * 360 / 100) - 90;
     if (angle < 0) angle += 360;
-    int radius = (w / 2) - 2 + 10;
+    int radius   = (w / 2) - 2 + 10;
     int center_x = x + w / 2;
     int center_y = y + h / 2;
-    float rad = angle * PI / 180.0;
-    int dot_x = center_x + radius * cosf(rad) - 4;
-    int dot_y = center_y + radius * sinf(rad) - 4;
+    float rad = angle * PI / 180.0f;
+    int dot_x = center_x + (int)(radius * cosf(rad)) - 4;
+    int dot_y = center_y + (int)(radius * sinf(rad)) - 4;
 
     lv_obj_t *dot = lv_obj_create(parent);
     lv_obj_set_size(dot, 8, 8);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dot, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(0xFF0000), 0);   // ROSSO
     lv_obj_set_style_border_width(dot, 0, 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     lv_obj_set_pos(dot, dot_x, dot_y);
-    g.arc_arrow = dot;
+    g.arc_arrow[idx] = dot;
 
-    if (g.arc_value > g.arc_target) {
-        g.arc_crossed = true;
+    // Stato iniziale: se già sorpassato, pallino nascosto
+    if (g.arc_value[idx] > g.arc_target[idx]) {
+        g.arc_crossed[idx] = true;
         lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_arc_color(arc, lv_color_hex(COLOR_ARC_PASSED), LV_PART_INDICATOR);
     } else {
-        g.arc_crossed = false;
+        g.arc_crossed[idx] = false;
         lv_obj_clear_flag(dot, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_arc_color(arc, lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
     }
 
-    lv_obj_add_event_cb(arc, earc_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(arc, earc_changed, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)idx);
 }
-
 // ========================== SUBMENU ==========================
 void submenu(lv_obj_t *p) {
     lv_obj_add_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
@@ -649,13 +664,21 @@ void reset_arrows() {
         if (g.shape_slider_B && lv_obj_is_valid(g.shape_slider_B))
             update_shape_slider_color(SRC_B, true);
     } else { g.shape_arrow_B = 0; g.shape_slider_B = 0; }
-    g.arc_crossed = false;
-    if (g.arc_obj && lv_obj_is_valid(g.arc_obj)) {
-        if (g.arc_arrow && lv_obj_is_valid(g.arc_arrow)) {
-            lv_obj_clear_flag(g.arc_arrow, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_arc_color(g.arc_obj, lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
-        } else g.arc_arrow = 0;
-    } else { g.arc_obj = 0; g.arc_arrow = 0; }
+	
+      for (int i = 0; i < 6; i++) {
+        g.arc_crossed[i] = false;
+        if (g.arc_obj[i] && lv_obj_is_valid(g.arc_obj[i])) {
+            if (g.arc_arrow[i] && lv_obj_is_valid(g.arc_arrow[i])) {
+                lv_obj_clear_flag(g.arc_arrow[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_arc_color(g.arc_obj[i], lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
+            } else {
+                g.arc_arrow[i] = NULL;
+            }
+        } else {
+            g.arc_obj[i]   = NULL;
+            g.arc_arrow[i] = NULL;
+        }
+    }
     log_add("Freccine ripristinate", lv_color_hex(0x66AAFF));
     toast_show("Freccine ripristinate!", lv_color_hex(0x66AAFF), TOAST_DUR);
 }
@@ -665,7 +688,30 @@ void wave_shape(int id, int src) {
     char b[60]; snprintf(b, 60, "[%s] Selezionato: %s", sn, WAVE_DEFS[id].name);
     log_add(b, lv_color_hex(0x66AAFF));
 }
+// ========================== LOG WIDGET (riusabile) ==========================
+void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h) {
+    g.log_f = lv_obj_create(parent);
+    lv_obj_set_size(g.log_f, w, h);
+    lv_obj_set_pos(g.log_f, x, y);
+    lv_obj_set_style_bg_color(g.log_f, lv_color_hex(0x0A0A0A), 0);
+    lv_obj_set_style_border_width(g.log_f, 2, 0);
+    lv_obj_set_style_border_color(g.log_f, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_radius(g.log_f, 4, 0);
+    lv_obj_clear_flag(g.log_f, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(g.log_f, LV_OBJ_FLAG_HIDDEN);
 
+    g.log_c = lv_obj_create(g.log_f);
+    lv_obj_set_size(g.log_c, w - 20, h - 20);
+    lv_obj_set_pos(g.log_c, 10, 10);
+    lv_obj_set_style_bg_color(g.log_c, lv_color_hex(0x0A0A0A), 0);
+    lv_obj_set_style_border_width(g.log_c, 0, 0);
+    lv_obj_set_style_pad_all(g.log_c, 5, 0);
+    lv_obj_set_style_pad_row(g.log_c, 3, 0);
+    lv_obj_set_flex_flow(g.log_c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(g.log_c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_scrollbar_mode(g.log_c, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(g.log_c, LV_OBJ_FLAG_SCROLLABLE);
+}
 // ========================== HOME ==========================
 void create_home() {
     pendingPresetA = pendingPresetB = -1;
@@ -678,7 +724,7 @@ void create_home() {
     for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-    g.arc_obj = g.arc_arrow = g.arc_label_value = g.arc_label_p1 = 0;
+      for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
 
@@ -718,26 +764,7 @@ void create_home() {
     lv_obj_set_style_radius(sl, 5, LV_PART_MAIN | LV_PART_INDICATOR);
     lv_obj_add_event_cb(sl, ebright, LV_EVENT_VALUE_CHANGED, 0);
 
-    g.log_f = lv_obj_create(m);
-    lv_obj_set_size(g.log_f, 700, 240);
-    lv_obj_set_pos(g.log_f, 50, 97);
-    lv_obj_set_style_bg_color(g.log_f, lv_color_hex(0x0A0A0A), 0);
-    lv_obj_set_style_border_width(g.log_f, 2, 0);
-    lv_obj_set_style_border_color(g.log_f, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_radius(g.log_f, 4, 0);
-    lv_obj_clear_flag(g.log_f, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(g.log_f, LV_OBJ_FLAG_HIDDEN);
-    g.log_c = lv_obj_create(g.log_f);
-    lv_obj_set_size(g.log_c, 680, 220);
-    lv_obj_set_pos(g.log_c, 10, 10);
-    lv_obj_set_style_bg_color(g.log_c, lv_color_hex(0x0A0A0A), 0);
-    lv_obj_set_style_border_width(g.log_c, 0, 0);
-    lv_obj_set_style_pad_all(g.log_c, 5, 0);
-    lv_obj_set_style_pad_row(g.log_c, 3, 0);
-    lv_obj_set_flex_flow(g.log_c, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(g.log_c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_scrollbar_mode(g.log_c, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_add_flag(g.log_c, LV_OBJ_FLAG_SCROLLABLE);
+        create_log_widget(m, 50, 97, 700, 240);
 
     const char *n[] = {"PLAY","SYNTH A","SYNTH B","DRUM","SET UP"};
     lv_color_t cols[] = {lv_color_hex(0x00FF00), lv_color_hex(0xCC3300), lv_color_hex(0x0099FF), lv_color_hex(0xFFCC33), lv_color_hex(0x999999)};
@@ -755,7 +782,7 @@ void create_page(const char *title) {
     for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-    g.arc_obj = g.arc_arrow = g.arc_label_value = g.arc_label_p1 = 0;
+       for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
 
@@ -824,14 +851,33 @@ void create_page(const char *title) {
         h_slider(m, id);
         home_btn(m, -2);
     }
-    else if (strncmp(title, "MOD", 3) == 0) {
-        arc_with_image(m, 300, 150, 108, 108);
+        else if (strncmp(title, "MOD", 3) == 0) {
+        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+
+        if (isA) {
+            // 6 pot: Data_Pot_1 .. Data_Pot_6
+            static const char *pnames[6] = {"p1","p2","p3","p4","p5","p6"};
+            const int arc_w = 100, arc_h = 100;
+            const int x0 = 50,  y0 = 95;
+            const int dx = 160, dy = 170;
+
+            for (int i = 0; i < 6; i++) {
+                int col = i % 3;
+                int row = i / 3;
+                int x   = x0 + col * dx;
+                int y   = y0 + row * dy;
+                arc_with_image(m, i, x, y, arc_w, arc_h, pnames[i]);
+            }
+        }
+        // Synth B/MOD: nessun arc
+
         home_btn(m, -2);
     }
-    else if (strcmp(title, "SET UP") == 0) {
+        else if (strcmp(title, "SET UP") == 0) {
+        // --- Pulsante "init SD" ---
         lv_obj_t *btn = lv_btn_create(m);
         lv_obj_set_size(btn, 160, 70);
-        lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_pos(btn, 50, 80);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0xCC3333), 0);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x992222), LV_STATE_PRESSED);
         lv_obj_set_style_radius(btn, 10, 0);
@@ -843,9 +889,26 @@ void create_page(const char *title) {
         lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
         lv_obj_center(lbl);
         lv_obj_add_event_cb(btn, init_sd_btn_click, LV_EVENT_CLICKED, NULL);
+
+        // --- Pulsante "Riavvia Discovery" ---
+        lv_obj_t *btn_disc = lv_btn_create(m);
+        lv_obj_set_size(btn_disc, 220, 70);
+        lv_obj_set_pos(btn_disc, 240, 80);
+        lv_obj_set_style_bg_color(btn_disc, lv_color_hex(0x1A4B6B), 0);
+        lv_obj_set_style_bg_color(btn_disc, lv_color_hex(0x123348), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(btn_disc, 10, 0);
+        lv_obj_set_style_border_width(btn_disc, 2, 0);
+        lv_obj_set_style_border_color(btn_disc, lv_color_hex(0x44AAFF), 0);
+        lv_obj_t *lbl_disc = lv_label_create(btn_disc);
+        lv_label_set_text(lbl_disc, "Riavvia Discovery");
+        lv_obj_set_style_text_color(lbl_disc, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(lbl_disc, &lv_font_montserrat_20, 0);
+        lv_obj_center(lbl_disc);
+        lv_obj_add_event_cb(btn_disc, disc_btn_click, LV_EVENT_CLICKED, NULL);
+
         home_btn(m, -1);
     }
-    else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
+	else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
         bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
         lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE) : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
         lv_color_t passed_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_PASSED) : lv_color_hex(COLOR_SLIDER_SYNTH_B_PASSED);
@@ -862,6 +925,8 @@ void create_page(const char *title) {
         lv_obj_align(lb, LV_ALIGN_CENTER, 0, -40);
         home_btn(m, -1);
     }
+	    // Log riusabile su ogni pagina
+    create_log_widget(m, 50, 200, 600, 220);
 }
 
 // ========================== GESTORI EVENTI ==========================

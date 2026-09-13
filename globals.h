@@ -85,10 +85,17 @@ struct GlobalData {
     int shape_last_A, shape_last_B;
     lv_obj_t *shape_arrow_A, *shape_arrow_B;
     lv_obj_t *shape_slider_A, *shape_slider_B;
-    uint8_t arc_value, arc_target;
-    bool arc_crossed;
-    int arc_last;
-    lv_obj_t *arc_obj, *arc_arrow, *arc_label_value, *arc_label_p1;
+   
+    // ================= ARC/POT (6 istanze, solo Synth A/MOD) =================
+    // idx 0..5 -> Data_Pot_1 .. Data_Pot_6
+    uint8_t  arc_value[6];
+    uint8_t  arc_target[6];
+    bool     arc_crossed[6];
+    int      arc_last[6];
+    lv_obj_t *arc_obj[6];
+    lv_obj_t *arc_arrow[6];
+    lv_obj_t *arc_label_value[6];
+    lv_obj_t *arc_label_p[6];
 };
 extern struct GlobalData g;
 
@@ -207,7 +214,7 @@ void update_wave_plot(lv_obj_t *chart, lv_chart_series_t *serie, uint8_t shape_v
 void update_leds(lv_obj_t **leds, int active_cat);
 void update_slider_color(int idx, bool active);
 void update_shape_slider_color(int synth_id, bool active);
-void arc_with_image(lv_obj_t *parent, int x, int y, int w, int h);
+void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const char *pname);
 void grid_btn_click(lv_event_t *e);
 void earc_changed(lv_event_t *e);
 void resetPingStatus();
@@ -223,5 +230,15 @@ void ehslider(lv_event_t *e);
 void elist(lv_event_t *e);
 void rename_btn_click(lv_event_t *e);
 void init_sd_btn_click(lv_event_t *e);
+
+// ========================== DISCOVERY (LWSv1) ==========================
+void discover_all_mcu_start();
+void discover_all_mcu_poll();
+void discover_request_restart();
+bool discovery_active();
+bool discovery_running();
+
+// ========================== LOG WIDGET (estratto) ==========================
+void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h);
 
 #endif
