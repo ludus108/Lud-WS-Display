@@ -1,6 +1,6 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 /**
-
+ add arc pot x 6
  * LUD-WS - Display Versione 0.0.11
  * ============================================================
  * - aggiunto:
