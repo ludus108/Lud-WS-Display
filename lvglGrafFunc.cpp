@@ -461,7 +461,7 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
     lv_label_set_text(plabel, pname);
     lv_obj_set_style_text_color(plabel, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font (plabel, &lv_font_montserrat_20, 0);
-    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, -12);
+    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, -10);
     g.arc_label_p[idx] = plabel;
 
     // ---------- Valore sotto la label P ----------
@@ -469,7 +469,7 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
     lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFAA00), 0);
     lv_obj_set_style_text_font (val_label, &lv_font_montserrat_14, 0);
     lv_label_set_text_fmt(val_label, "%d", g.arc_value[idx]);
-    lv_obj_align_to(val_label, arc, LV_ALIGN_CENTER, 0, 12);
+    lv_obj_align_to(val_label, arc, LV_ALIGN_BOTTOM_MID, 0, 12);
     g.arc_label_value[idx] = val_label;
 
     // ---------- Pallino ROSSO ----------
@@ -856,10 +856,10 @@ void create_page(const char *title) {
 
         if (isA) {
             // 6 pot: Data_Pot_1 .. Data_Pot_6
-            static const char *pnames[6] = {"p1","p2","p3","p4","p5","p6"};
-            const int arc_w = 100, arc_h = 100;
-            const int x0 = 50,  y0 = 95;
-            const int dx = 160, dy = 170;
+            static const char *pnames[6] = {"P1","P2","P3","P4","P5","P6"};
+            const int arc_w = 80, arc_h = 80;
+           const int x0 = 140,  y0 = 100;        // ricalcolato per centrare
+        const int dx = 180, dy = 160;         // spaziatura per arc da 80px
 
             for (int i = 0; i < 6; i++) {
                 int col = i % 3;
