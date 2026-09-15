@@ -459,28 +459,32 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
     // ---------- Label P al centro ----------
     lv_obj_t *plabel = lv_label_create(parent);
     lv_label_set_text(plabel, pname);
-    lv_obj_set_style_text_color(plabel, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(plabel, lv_color_hex(0xFFAA00), 0);
     lv_obj_set_style_text_font (plabel, &lv_font_montserrat_20, 0);
-    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, -12);
+    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, 0);
     g.arc_label_p[idx] = plabel;
 
     // ---------- Valore sotto la label P ----------
     lv_obj_t *val_label = lv_label_create(parent);
-    lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFAA00), 0);
-    lv_obj_set_style_text_font (val_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font (val_label, &lv_font_montserrat_20, 0);
     lv_label_set_text_fmt(val_label, "%d", g.arc_value[idx]);
-    lv_obj_align_to(val_label, arc, LV_ALIGN_CENTER, 0, 12);
+    lv_obj_align_to(val_label, arc, LV_ALIGN_BOTTOM_MID, 0, 0);
     g.arc_label_value[idx] = val_label;
 
     // ---------- Pallino ROSSO ----------
-    int angle = (g.arc_target[idx] * 360 / 100) - 90;
-    if (angle < 0) angle += 360;
-    int radius   = (w / 2) - 2 + 10;
-    int center_x = x + w / 2;
-    int center_y = y + h / 2;
-    float rad = angle * PI / 180.0f;
-    int dot_x = center_x + (int)(radius * cosf(rad)) - 4;
-    int dot_y = center_y + (int)(radius * sinf(rad)) - 4;
+// LVGL v8 default arc: bg_angles = 135° -> 45°  (sweep 270° orario)
+// value 0..100  ->  angolo 135 .. 405 (=45)
+float angle = 135.0f + (g.arc_target[idx] * 2.7f);   // 2.7 = 270/100
+if (angle >= 360.0f) angle -= 360.0f;
+if (angle <  0.0f)   angle += 360.0f;
+
+int radius   = (w / 2) - 2 + 10;
+int center_x = x + w / 2;
+int center_y = y + h / 2;
+float rad = angle * PI / 180.0f;
+int dot_x = center_x + (int)(radius * cosf(rad)) - 4;
+int dot_y = center_y + (int)(radius * sinf(rad)) - 4;
 
     lv_obj_t *dot = lv_obj_create(parent);
     lv_obj_set_size(dot, 8, 8);
@@ -504,6 +508,150 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
 
     lv_obj_add_event_cb(arc, earc_changed, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)idx);
 }
+// ========================== POT CONTAINER (6 arc multi-funzione) ==========================
+// Crea un contenitore con 6 arc allineati orizzontalmente (P1..P6) con pad di 25px.
+// Il contenitore e' riutilizzabile su qualsiasi pagina: la posizione (x,y) e'
+// relativa al parent. Ritorna il puntatore al contenitore per eventuali
+// personalizzazioni (es. nasconderlo, spostarlo, applicare stili).
+//
+// Layout:
+//   [P1] 25px [P2] 25px [P3] 25px [P4] 25px [P5] 25px [P6]
+//   |<------------- 605 px ------------->|
+//   Altezza: 100 px (20 px sopra per il pallino + 80 px di arc)
+lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y) {
+    const int arc_w   = 80;
+    const int arc_h   = 80;
+    const int gap     = 25;
+    const int pad_top = 20;   // spazio per il pallino rosso che sporge in alto
+
+    const int cont_w = 6 * arc_w + 5 * gap;   // 605
+    const int cont_h = pad_top + arc_h;        // 100
+
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_set_size(cont, cont_w, cont_h);
+    lv_obj_set_pos(cont, x, y);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    static const char *pnames[6] = {"P1","P2","P3","P4","P5","P6"};
+    for (int i = 0; i < 6; i++) {
+        int px = i * (arc_w + gap);
+        arc_with_image(cont, i, px, pad_top, arc_w, arc_h, pnames[i]);
+    }
+
+    pot_container = cont;
+    return cont;
+}
+// ========================== TIMELINE ==========================
+static void format_time(uint32_t ms, char *buf, size_t buflen) {
+    uint32_t total_s = ms / 1000;
+    uint32_t m = total_s / 60;
+    uint32_t s = total_s % 60;
+    if (m > 99) m = 99;
+    snprintf(buf, buflen, "%02u:%02u", (unsigned)m, (unsigned)s);
+}
+
+lv_obj_t* create_timeline(lv_obj_t *parent, int x, int y, int w, int h) {
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_set_size(cont, w, h);
+    lv_obj_set_pos(cont, x, y);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    const int time_w = 70;
+    const int bar_x  = time_w + 10;
+    const int bar_w  = w - 2 * (time_w + 10);
+    const int bar_h  = 8;
+    const int bar_y  = (h - bar_h) / 2;
+
+    // Tempo corrente (sinistra)
+    timeline_label_cur = lv_label_create(cont);
+    lv_label_set_text(timeline_label_cur, "00:00");
+    lv_obj_set_style_text_color(timeline_label_cur, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(timeline_label_cur, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(timeline_label_cur, 0, (h - 22) / 2);
+
+    // Sfondo barra
+    timeline_bar_bg = lv_obj_create(cont);
+    lv_obj_set_size(timeline_bar_bg, bar_w, bar_h);
+    lv_obj_set_pos(timeline_bar_bg, bar_x, bar_y);
+    lv_obj_set_style_bg_color(timeline_bar_bg, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_border_width(timeline_bar_bg, 0, 0);
+    lv_obj_set_style_radius(timeline_bar_bg, bar_h / 2, 0);
+    lv_obj_set_style_pad_all(timeline_bar_bg, 0, 0);
+    lv_obj_clear_flag(timeline_bar_bg, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Riempimento progresso
+    timeline_bar_fill = lv_obj_create(cont);
+    lv_obj_set_size(timeline_bar_fill, 0, bar_h);
+    lv_obj_set_pos(timeline_bar_fill, bar_x, bar_y);
+    lv_obj_set_style_bg_color(timeline_bar_fill, lv_color_hex(0x00AAFF), 0);
+    lv_obj_set_style_border_width(timeline_bar_fill, 0, 0);
+    lv_obj_set_style_radius(timeline_bar_fill, bar_h / 2, 0);
+    lv_obj_set_style_pad_all(timeline_bar_fill, 0, 0);
+    lv_obj_clear_flag(timeline_bar_fill, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Cursore
+    timeline_cursor = lv_obj_create(cont);
+    lv_obj_set_size(timeline_cursor, 4, h - 16);
+    lv_obj_set_pos(timeline_cursor, bar_x - 2, 8);
+    lv_obj_set_style_bg_color(timeline_cursor, lv_color_hex(0xFFAA00), 0);
+    lv_obj_set_style_border_width(timeline_cursor, 0, 0);
+    lv_obj_set_style_radius(timeline_cursor, 2, 0);
+    lv_obj_clear_flag(timeline_cursor, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Tempo totale (destra)
+    timeline_label_tot = lv_label_create(cont);
+    lv_label_set_text(timeline_label_tot, "00:00");
+    lv_obj_set_style_text_color(timeline_label_tot, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(timeline_label_tot, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(timeline_label_tot, w - time_w, (h - 22) / 2);
+
+    timeline_bar_w = bar_w;
+    timeline_obj   = cont;
+
+    update_timeline(timeline_cur_ms, timeline_total_ms);
+    return cont;
+}
+
+void update_timeline(uint32_t cur_ms, uint32_t tot_ms) {
+    timeline_cur_ms   = cur_ms;
+    timeline_total_ms = tot_ms;
+
+    char buf[16];
+
+    if (timeline_label_cur && lv_obj_is_valid(timeline_label_cur)) {
+        format_time(cur_ms, buf, sizeof(buf));
+        lv_label_set_text(timeline_label_cur, buf);
+    }
+    if (timeline_label_tot && lv_obj_is_valid(timeline_label_tot)) {
+        format_time(tot_ms, buf, sizeof(buf));
+        lv_label_set_text(timeline_label_tot, buf);
+    }
+
+    float pct = 0.0f;
+    if (tot_ms > 0) pct = (float)cur_ms / (float)tot_ms;
+    if (pct < 0.0f) pct = 0.0f;
+    if (pct > 1.0f) pct = 1.0f;
+
+    if (timeline_bar_fill && lv_obj_is_valid(timeline_bar_fill)) {
+        int fill_w = (int)(timeline_bar_w * pct);
+        if (fill_w < 1 && pct > 0.0f) fill_w = 1;
+        lv_obj_set_width(timeline_bar_fill, fill_w);
+    }
+
+    if (timeline_cursor && lv_obj_is_valid(timeline_cursor) &&
+        timeline_bar_bg && lv_obj_is_valid(timeline_bar_bg)) {
+        int bg_x = lv_obj_get_x(timeline_bar_bg);
+        int cx   = bg_x + (int)(timeline_bar_w * pct) - 2;
+        lv_obj_set_x(timeline_cursor, cx);
+    }
+}
+
 // ========================== SUBMENU ==========================
 void submenu(lv_obj_t *p) {
     lv_obj_add_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
@@ -562,7 +710,7 @@ lv_obj_t* meter(lv_obj_t *p, int x, int y, int w, int h, const char *label, bool
 }
 
 void update_meters() {
-     float ph=0; ph += 0.1f; if (ph > 6.28f) ph -= 6.28f;
+    static float ph=0; ph += 0.1f; if (ph > 6.28f) ph -= 6.28f;
     float vL = constrain(0.5f + 0.5f*sinf(ph) + 0.05f*((float)random(0,100)/100.0f - 0.5f), 0, 1);
     float vR = constrain(0.5f + 0.5f*cosf(ph*0.7f) + 0.05f*((float)random(0,100)/100.0f - 0.5f), 0, 1);
     float vC = constrain((vL+vR)*0.5f * (1.0f - 0.3f*(vL+vR)*0.5f), 0, 1);
@@ -641,7 +789,7 @@ void save_bright() {
 
 // ========================== RESET FRECCINE ==========================
 void reset_arrows() {
-    for (int i=0; i<8; i++) {
+    for (int i = 0; i < MAX_SLIDERS; i++) {
         crs[i] = 0;
         if (arr[i] && lv_obj_is_valid(arr[i])) {
             lv_obj_clear_flag(arr[i], LV_OBJ_FLAG_HIDDEN);
@@ -652,6 +800,7 @@ void reset_arrows() {
             update_slider_color(i, true);
         else slider_objs[i] = 0;
     }
+
     g.shape_crs_A = false;
     g.shape_crs_B = false;
     if (g.shape_arrow_A && lv_obj_is_valid(g.shape_arrow_A)) {
@@ -664,8 +813,8 @@ void reset_arrows() {
         if (g.shape_slider_B && lv_obj_is_valid(g.shape_slider_B))
             update_shape_slider_color(SRC_B, true);
     } else { g.shape_arrow_B = 0; g.shape_slider_B = 0; }
-	
-      for (int i = 0; i < 6; i++) {
+
+    for (int i = 0; i < MAX_ARCS; i++) {
         g.arc_crossed[i] = false;
         if (g.arc_obj[i] && lv_obj_is_valid(g.arc_obj[i])) {
             if (g.arc_arrow[i] && lv_obj_is_valid(g.arc_arrow[i])) {
@@ -679,6 +828,7 @@ void reset_arrows() {
             g.arc_arrow[i] = NULL;
         }
     }
+
     log_add("Freccine ripristinate", lv_color_hex(0x66AAFF));
     toast_show("Freccine ripristinate!", lv_color_hex(0x66AAFF), TOAST_DUR);
 }
@@ -718,15 +868,20 @@ void create_home() {
     if (blink_timer) { lv_timer_del(blink_timer); blink_timer = NULL; blink_state = false; }
     close_rename_window();
     if (g.play) { stop_meters(); g.play = 0; }
+	if (tdt) { lv_timer_del(tdt); tdt = nullptr; timeline_demo_ms = 0; }
     if (g.page) { lv_obj_del(g.page); g.page = 0; }
     g.synth = 0; g.err = g.log_v = g.toast_v = 0;
     g.log_c = g.log_f = g.toast = 0;
-    for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
+    for (int i=0; i<MAX_SLIDERS; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-      for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+	for (int i = 0; i < MAX_ARCS; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
+	pot_container = NULL;
+timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
+timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -779,12 +934,16 @@ void create_page(const char *title) {
     if (g.play && strcmp(title, "PLAY") != 0) { stop_meters(); g.play = 0; }
     if (g.page) { lv_obj_del(g.page); g.page = 0; }
     g.log_c = g.log_f = g.toast = 0; g.toast_v = 0;
-    for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
+    for (int i=0; i<MAX_SLIDERS; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-       for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+	   for (int i = 0; i < MAX_ARCS; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
+	pot_container = NULL;
+timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
+timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -804,14 +963,35 @@ void create_page(const char *title) {
     }
 
     if (strcmp(title, "PLAY") == 0) {
-        g.play = 1; int w=22, h=150;
-        mL = meter(m, 685, 10, w, h, "L", 0);
-        mR = meter(m, 709, 10, w, h, "R", 0);
-        mC = meter(m, 750, 10, w, h, "C", 1);
-        if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
-        home_btn(m, -1);
+    g.play = 1; int w=22, h=150;
+    mL = meter(m, 685, 10, w, h, "L", 0);
+    mR = meter(m, 709, 10, w, h, "R", 0);
+    mC = meter(m, 750, 10, w, h, "C", 1);
+    if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
+
+    // Time line centrata verticalmente (display 480 px, timeline 40 px)
+    // y = (480 - 40) / 2 = 220
+    create_timeline(m, 50, 220, 700, 40);
+
+    // ---- Demo: timeline avanza su 60 secondi, poi riparte da 0 ----
+    if (!tdt) {
+        timeline_demo_ms = 0;
+        tdt = lv_timer_create([](lv_timer_t*){
+            timeline_demo_ms += 100;                 // 100 ms per tick
+            if (timeline_demo_ms > 60000)            // 60 s totali
+                timeline_demo_ms = 0;
+            update_timeline(timeline_demo_ms, 60000);
+        }, 100, 0);                                  // tick ogni 100 ms = 10 Hz
     }
-    else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
+
+    home_btn(m, -1);
+}
+if (strcmp(title, "PLAY") != 0 && tdt) {
+    lv_timer_del(tdt);
+    tdt = nullptr;
+    timeline_demo_ms = 0;
+}   
+   else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
         g.synth = title;
         int id = (strcmp(title, "SYNTH A") == 0) ? 0 : 1;
         const char *lbl = (id == 0) ? "Preset A" : "Preset B";
@@ -846,33 +1026,26 @@ void create_page(const char *title) {
         submenu(m);
         update_all_targets();
     }
-    else if (strncmp(title, "DCO", 3) == 0) {
-        int id = (g.synth && strcmp(g.synth, "SYNTH A") == 0) ? SRC_A : SRC_B;
-        h_slider(m, id);
-        home_btn(m, -2);
+	else if (strncmp(title, "DCO", 3) == 0) {
+    int id = (g.synth && strcmp(g.synth, "SYNTH A") == 0) ? SRC_A : SRC_B;
+    h_slider(m, id);
+    home_btn(m, -2);
+}
+
+else if (strncmp(title, "MOD", 3) == 0) {
+    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+
+    if (isA) {
+        // 6 pot multi-funzione in contenitore riutilizzabile, in riga.
+        // Centrato orizzontalmente: (800 - 605) / 2 ≈ 100
+        create_pot_container(m, 100, 100);
     }
-        else if (strncmp(title, "MOD", 3) == 0) {
-        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+	
+    // Synth B/MOD: nessun arc
 
-        if (isA) {
-            // 6 pot: Data_Pot_1 .. Data_Pot_6
-            static const char *pnames[6] = {"p1","p2","p3","p4","p5","p6"};
-            const int arc_w = 100, arc_h = 100;
-            const int x0 = 50,  y0 = 95;
-            const int dx = 160, dy = 170;
-
-            for (int i = 0; i < 6; i++) {
-                int col = i % 3;
-                int row = i / 3;
-                int x   = x0 + col * dx;
-                int y   = y0 + row * dy;
-                arc_with_image(m, i, x, y, arc_w, arc_h, pnames[i]);
-            }
-        }
-        // Synth B/MOD: nessun arc
-
-        home_btn(m, -2);
-    }
+    home_btn(m, -2);
+}
+ 
         else if (strcmp(title, "SET UP") == 0) {
         // --- Pulsante "init SD" ---
         lv_obj_t *btn = lv_btn_create(m);

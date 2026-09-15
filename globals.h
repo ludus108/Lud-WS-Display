@@ -52,6 +52,10 @@ extern struct WaveDef WAVE_DEFS[NUM_WAVES];
 #define FM_ITEMS "FM 0\nFM 1\nFM 2\nFM 3\nFM 4\nFM 5\nFM 6\nFM 7"
 #define AM_ITEMS "AM 1\nAM 2\nAM 3\nAM 4\nAM 5\nAM 6\nAM 7\nAM 8"
 
+// ========================== DIMENSIONI ARRAY SLIDER ==========================
+#define MAX_SLIDERS 8    // VCF (0..3) + VCA (4..7)
+#define MAX_ARCS    6    // MOD Synth A: P1..P6
+
 // ========================== PRESET (INDIPENDENTI) ==========================
 #define MAX_timbrA 23
 #define MAX_timbrB 26
@@ -127,7 +131,10 @@ extern lv_timer_t *mt;
 extern float pkL, pkR, pkC;
 extern const char* last_version;
 extern uint8_t sliderColorDepth;
-
+// ========================== POT CONTAINER (6 arc multi-funzione) ==========================
+// Contenitore condiviso tra pagine. Non e' di proprieta' di una pagina specifica:
+// viene ricreato ogni volta che la pagina che lo ospita viene ricostruita.
+extern lv_obj_t *pot_container;
 // ========================== PRESET ARRAY ==========================
 extern int presetNumA, presetNumB;
 extern int timbrA[MAX_preset][MAX_timbrA];
@@ -240,5 +247,20 @@ bool discovery_running();
 
 // ========================== LOG WIDGET (estratto) ==========================
 void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h);
+// ========================== TIMELINE DEMO ==========================
+extern lv_timer_t *tdt;              // timeline demo timer
+extern uint32_t    timeline_demo_ms; // contatore demo (ms)
+// ========================== TIMELINE (riproducibile su qualsiasi pagina) ==========================
+extern lv_obj_t *timeline_obj;
+extern lv_obj_t *timeline_bar_bg;
+extern lv_obj_t *timeline_bar_fill;
+extern lv_obj_t *timeline_cursor;
+extern lv_obj_t *timeline_label_cur;
+extern lv_obj_t *timeline_label_tot;
+extern uint32_t  timeline_cur_ms;
+extern uint32_t  timeline_total_ms;
+extern int       timeline_bar_w;
+
+void update_timeline(uint32_t cur_ms, uint32_t tot_ms);
 
 #endif

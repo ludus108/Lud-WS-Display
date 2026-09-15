@@ -1,11 +1,16 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 /**
- * LUD-WS - Display Versione 0.0.11
+ add arc pot x 6
+ ulti
+ * LUD-WS - Display Versione 0.0.12
  * ============================================================
+ * - aggiunto:
+ 
  * - Protocollo LWSv1 unificato (condiviso con Router e nodi)
  * - Discovery MCU non bloccante, riavviabile da SET UP
  * - 6 arc/pot in Synth A/MOD (Data_Pot_1..6) con pallino rosso
  *   e label valore sotto l'arc
+ 
  */
 #include <Arduino.h>
 #include <esp_display_panel.hpp>
@@ -32,7 +37,7 @@ struct ShapeData shape_data[2];
 lv_obj_t *mL=0, *mR=0, *mC=0;
 lv_timer_t *mt=0;
 float pkL=0, pkR=0, pkC=0;
-const char* last_version = "V.0.11";
+const char* last_version = "V.0.12";
 uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
@@ -48,6 +53,7 @@ lv_obj_t *preset_dropdown_A = NULL;
 lv_obj_t *preset_dropdown_B = NULL;
 lv_obj_t *preset_label_A = NULL;
 lv_obj_t *preset_label_B = NULL;
+lv_obj_t *pot_container = nullptr;
 int pendingPresetA = -1;
 int pendingPresetB = -1;
 bool blink_state = false;
@@ -55,7 +61,17 @@ lv_timer_t *blink_timer = NULL;
 lv_obj_t *grid_btns[2][20];
 int grid_btn_count[2] = {0, 0};
 int grid_selected_idx[2] = {0, 0};
-
+lv_obj_t *timeline_obj       = nullptr;
+lv_obj_t *timeline_bar_bg    = nullptr;
+lv_obj_t *timeline_bar_fill  = nullptr;
+lv_obj_t *timeline_cursor    = nullptr;
+lv_obj_t *timeline_label_cur = nullptr;
+lv_obj_t *timeline_label_tot = nullptr;
+uint32_t  timeline_cur_ms    = 0;
+uint32_t  timeline_total_ms  = 0;
+int       timeline_bar_w     = 0;
+lv_timer_t *tdt             = nullptr;
+uint32_t    timeline_demo_ms = 0;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},

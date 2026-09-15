@@ -1,6 +1,45 @@
 #ifndef COMUNICAZIONI_H
 #define COMUNICAZIONI_H
 
+/*
+ * ============================================================================
+ *  comunicazioni.h — LWSv1.1 (LUD-WS Serial Protocol v1.1)
+ * ============================================================================
+ *
+ *  CHANGELOG rispetto a LWSv1:
+ *  ---------------------------------------------------------------------------
+ *  [10.1] FIX  : ID_POWER aggiunto a MCU_IDS[] e MCU_NAMES[], MAX_MCU = 10.
+ *                Prima era presente solo in DISC_TARGETS[] e non veniva mai
+ *                contato come online (report max 8/9).
+ *
+ *  [10.2] ADD  : CRC-8/ATM (poly 0x07, init 0x00) nel frame.
+ *                Copre SENDER..PAYLOAD. Frame con CRC errato vengono scartati
+ *                silenziosamente dal parser (auto-risincronizzante).
+ *
+ *  [10.3] ADD  : SEQ byte + protocollo ibrido di ACK:
+ *                  - CMD_PING      -> PONG (affidabile, usato in discovery)
+ *                  - CMD_PARAM     -> fire-and-forget (slider/pot ad alta freq)
+ *                  - CMD_PARAM_REL -> ACK obbligatorio (preset, config, critici)
+ *                Coda pending da 8 slot, timeout 300 ms, 3 retry.
+ *
+ *  Formato frame LWSv1.1:
+ *      [SENDER][SEQ][CMD][LEN][PAYLOAD...][CRC8][&][!]
+ *
+ *  Traffico tipico:
+ *      - slider/pot    : ~10 byte/update (nessun ACK)
+ *      - comando critico: ~10 byte TX + ~9 byte ACK
+ *      - discovery ping : ~10 byte TX + ~9 byte PONG
+ *
+ *  Note implementative:
+ *      - Il parser è auto-risincronizzante su rumore (torna a ST_SENDER
+ *        quando i terminatori non corrispondono).
+ *      - I byte '&' (0x26) e '!' (0x21) non devono comparire nel payload:
+ *        se servono, vanno codificati applicativamente.
+ *      - com_poll() DEVE essere chiamato ad ogni iterazione di loop() per
+ *        far girare i retry degli ACK in sospeso.
+ * ============================================================================
+ */
+
 #include <Arduino.h>
 #include "globals.h"
 #include "serial_protocol.h"
@@ -17,19 +56,11 @@
 #define ID_TEENSY   'T'
 #define ID_POWER    'P'
 
-#define MAX_MCU         9
+#define MAX_MCU         10          // [10.1] era 9, ora include Power
 #define PING_TIMEOUT_MS 2000
 
-// ========================== COMMAND CODES (LWSv1) ==========================
-#define CMD_PING        'p'
-#define CMD_PONG        'P'
-#define CMD_PARAM       'S'
-#define CMD_GET_PARAM   'G'
-#define CMD_PARAM_ACK   'A'
-#define CMD_ERROR       'E'
-#define CMD_STATUS      'Z'
 
-// ========================== PARAMETER MAPPING ==========================
+// ========================== PARAMETER MAPPING (invariato) ==========================
 struct ParamMapA { char key; uint8_t index; };
 static const ParamMapA mapA[] = {
     {'a', wave_mode_A},    {'b', wave_A},          {'c', shape_A},         {'d', shape_lev_A},
@@ -62,19 +93,52 @@ static struct {
 
 static const char* MCU_NAMES[MAX_MCU] = {
     "Display", "Synth A1", "Synth A2", "Synth A3",
-    "Synth B", "Router",   "Ctrl",     "Mod",     "Teensy"
+    "Synth B", "Router",   "Ctrl",     "Mod",
+    "Teensy",  "Power"                       // [10.1] aggiunto
 };
 static const char MCU_IDS[MAX_MCU] = {
     ID_DISPLAY, ID_SYNTH_A1, ID_SYNTH_A2, ID_SYNTH_A3,
-    ID_SYNTH_B, ID_ROUTER,   ID_CTRL,     ID_MOD,     ID_TEENSY
+    ID_SYNTH_B, ID_ROUTER,   ID_CTRL,     ID_MOD,
+    ID_TEENSY,  ID_POWER                     // [10.1] aggiunto
 };
 
 static LwsParser lwsDisplayParser;
 
+// ========================== SEQ + PENDING ACK ==========================
+static uint8_t g_tx_seq = 0;
+static inline uint8_t next_seq() { return g_tx_seq++; }
+
+#define PENDING_MAX     8
+#define ACK_TIMEOUT_MS  300
+#define ACK_RETRIES_MAX 3
+
+struct PendingAck {
+    bool     used;
+    uint8_t  seq;
+    char     target;
+    uint8_t  cmd;
+    uint8_t  len;
+    uint8_t  data[8];
+    uint8_t  retries;
+    uint32_t t_sent;
+};
+static PendingAck g_pending[PENDING_MAX] = {};
+
+static PendingAck* pending_find(uint8_t seq) {
+    for (int i = 0; i < PENDING_MAX; i++)
+        if (g_pending[i].used && g_pending[i].seq == seq) return &g_pending[i];
+    return nullptr;
+}
+static PendingAck* pending_alloc() {
+    for (int i = 0; i < PENDING_MAX; i++)
+        if (!g_pending[i].used) return &g_pending[i];
+    return nullptr;
+}
+
 // ========================== TX ==========================
 static void send_ping(char target_mcu) {
     uint8_t p[1] = { (uint8_t)target_mcu };
-    lws_send_frame(Serial1, ID_DISPLAY, CMD_PING, p, 1);
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(), CMD_PING, p, 1);
     for (int i = 0; i < MAX_MCU; i++) {
         if (MCU_IDS[i] == target_mcu) {
             Serial.print("Ping -> "); Serial.println(MCU_NAMES[i]);
@@ -84,12 +148,38 @@ static void send_ping(char target_mcu) {
 }
 
 static void send_pong() {
-    lws_send_frame(Serial1, ID_DISPLAY, CMD_PONG, nullptr, 0);
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(), CMD_PONG, nullptr, 0);
 }
 
+// -------- Fire-and-forget: per slider/pot in movimento, alta frequenza --------
+// Non entra in coda pending, nessun retry. Il ricevente aggiorna e basta.
+// Se un frame si perde, il successivo (33 ms dopo) lo sovrascrive.
 static void send_param_update(char target, char param_key, uint8_t value) {
     uint8_t p[3] = { (uint8_t)target, (uint8_t)param_key, value };
-    lws_send_frame(Serial1, ID_DISPLAY, CMD_PARAM, p, 3);
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(), CMD_PARAM, p, 3);
+}
+
+// -------- Reliable: per preset load, config, cambi wave mode, ecc. --------
+// Entra in coda pending, retry fino a 3 volte con timeout 300 ms.
+static void send_param_reliable(char target, char param_key, uint8_t value) {
+    uint8_t p[3] = { (uint8_t)target, (uint8_t)param_key, value };
+    uint8_t seq  = next_seq();
+
+    PendingAck *pa = pending_alloc();
+    if (pa) {
+        pa->used    = true;
+        pa->seq     = seq;
+        pa->target  = target;
+        pa->cmd     = CMD_PARAM_REL;
+        pa->len     = 3;
+        memcpy(pa->data, p, 3);
+        pa->retries = 0;
+        pa->t_sent  = millis();
+    } else {
+        log_add("Coda ACK piena", lv_color_hex(0xFFAA00));
+    }
+
+    lws_send_frame(Serial1, ID_DISPLAY, seq, CMD_PARAM_REL, p, 3);
 }
 
 static void send_error(char target, const char *error_msg) {
@@ -98,7 +188,13 @@ static void send_error(char target, const char *error_msg) {
     if (l > 62) l = 62;
     p[0] = (uint8_t)target;
     memcpy(&p[1], error_msg, l);
-    lws_send_frame(Serial1, ID_DISPLAY, CMD_ERROR, p, 1 + (uint8_t)l);
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(), CMD_ERROR, p, 1 + (uint8_t)l);
+}
+
+// ACK per un frame ricevuto: payload = [acked_seq, acked_cmd]
+static void send_param_ack(uint8_t acked_seq, uint8_t acked_cmd) {
+    uint8_t p[2] = { acked_seq, acked_cmd };
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(), CMD_PARAM_ACK, p, 2);
 }
 
 // ========================== RX ==========================
@@ -125,10 +221,24 @@ static void process_frame(const LwsFrame &f) {
             break;
         }
 
-        case CMD_PARAM_ACK:
-            Serial.print("Param ACK from "); Serial.println(sender_name);
+        case CMD_PARAM_ACK: {
+            if (f.len >= 2) {
+                uint8_t acked_seq = f.data[0];
+                uint8_t acked_cmd = f.data[1];
+                PendingAck *pa = pending_find(acked_seq);
+                if (pa && pa->cmd == acked_cmd) {
+                    pa->used = false;
+                    Serial.printf("ACK seq=%u cmd=%c from %s\n",
+                                  acked_seq, (char)acked_cmd, sender_name);
+                } else {
+                    Serial.printf("ACK orfano seq=%u from %s\n",
+                                  acked_seq, sender_name);
+                }
+            }
             break;
+        }
 
+        // Fire-and-forget: applica e basta, NESSUN ACK
         case CMD_PARAM: {
             if (f.len >= 3) {
                 char    target = (char)f.data[0];
@@ -145,6 +255,24 @@ static void process_frame(const LwsFrame &f) {
             break;
         }
 
+        // Reliable: applica e invia ACK
+        case CMD_PARAM_REL: {
+            if (f.len >= 3) {
+                char    target = (char)f.data[0];
+                char    key    = (char)f.data[1];
+                uint8_t val    = f.data[2];
+                if (target == 'A') {
+                    for (uint8_t i = 0; i < MAPA_SIZE; i++)
+                        if (mapA[i].key == key) { timbrA[presetNumA][mapA[i].index] = val; break; }
+                } else if (target == 'B') {
+                    for (uint8_t i = 0; i < MAPB_SIZE; i++)
+                        if (mapB[i].key == key) { timbrB[presetNumB][mapB[i].index] = val; break; }
+                }
+                send_param_ack(f.seq, f.cmd);
+            }
+            break;
+        }
+
         case CMD_ERROR: {
             char msg[64] = {0};
             if (f.len >= 2) {
@@ -154,13 +282,43 @@ static void process_frame(const LwsFrame &f) {
                 msg[l] = '\0';
             }
             log_add(msg, lv_color_hex(0xFF0000));
-            for (int i = 0; i < MAX_MCU; i++)
+            for (int i = 0; i < MAX_MCU; i++){
                 if (MCU_IDS[i] == (char)f.sender) { mcu_status.online[i] = false; break; }
+		}
+		}
             break;
+			case CMD_TIMELINE: {
+    if (f.len >= 8) {
+        uint32_t cur = (uint32_t)lws_unpack_i32_le(&f.data[0]);
+        uint32_t tot = (uint32_t)lws_unpack_i32_le(&f.data[4]);
+        update_timeline(cur, tot);
+    }
+			}
+    break;
+	case CMD_MIDI_CC: {
+            if (f.len >= 2) {
+                Serial.printf("[MIDI] CC  %u = %u (from %s)\n",
+                              f.data[0], f.data[1], sender_name);
+            }
+	}
+            break;
+        case CMD_MIDI_NOTE: {
+            if (f.len >= 3) {
+                Serial.printf("[MIDI] %s pitch=%u vel=%u (from %s)\n",
+                              f.data[0] ? "NOTE_ON " : "NOTE_OFF",
+                              f.data[1], f.data[2], sender_name);
+            }   
         }
-
-        default:
-            break;
+     break;
+        case CMD_MIDI_BEND: {
+            if (f.len >= 4) {
+                int32_t bend = lws_unpack_i32_le(&f.data[0]);
+                Serial.printf("[MIDI] BEND %ld (from %s)\n",
+                              (long)bend, sender_name);
+            }
+           
+        }
+ break;
     }
 }
 
@@ -172,21 +330,49 @@ void leggiSer() {
     }
 }
 
+// ========================== POLL PER RETRY ACK ==========================
+// DEVE essere chiamata ad ogni iterazione di loop().
+void com_poll() {
+    uint32_t now = millis();
+    for (int i = 0; i < PENDING_MAX; i++) {
+        PendingAck *pa = &g_pending[i];
+        if (!pa->used) continue;
+        if (now - pa->t_sent < ACK_TIMEOUT_MS) continue;
+
+        if (pa->retries >= ACK_RETRIES_MAX) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "ACK timeout seq=%u target=%c",
+                     pa->seq, pa->target);
+            log_add(buf, lv_color_hex(0xFF0000));
+            pa->used = false;
+            continue;
+        }
+
+        pa->retries++;
+        pa->t_sent = now;
+        lws_send_frame(Serial1, ID_DISPLAY, pa->seq, pa->cmd, pa->data, pa->len);
+        Serial.printf("Retry seq=%u (tent. %u)\n", pa->seq, pa->retries);
+    }
+}
+
+// ========================== REPORT ==========================
 static void print_mcu_status() {
     Serial.println("\n=== MCU DISCOVERY REPORT ===");
     int online_count = 0;
     for (int i = 0; i < MAX_MCU; i++) {
+        if (MCU_IDS[i] == ID_DISPLAY) continue;   // salta se stesso
         Serial.print("- "); Serial.print(MCU_NAMES[i]); Serial.print(": ");
         if (mcu_status.online[i]) { Serial.println("ONLINE"); online_count++; }
         else                        Serial.println("OFFLINE");
     }
     Serial.print("TOTAL: "); Serial.print(online_count);
-    Serial.print("/");       Serial.println(MAX_MCU);
+    Serial.print("/");       Serial.println(MAX_MCU - 1);
 }
 
 void resetPingStatus() {
     memset(&mcu_status, 0, sizeof(mcu_status));
     lwsDisplayParser.reset();
+    memset(g_pending, 0, sizeof(g_pending));
 }
 
 // ========================== DISCOVERY (non bloccante, riavviabile) ==========================
@@ -211,8 +397,8 @@ static const char DISC_TARGETS[] = {
     ID_SYNTH_B,  ID_ROUTER,   ID_CTRL,
     ID_MOD,      ID_TEENSY,   ID_POWER
 };
-static const uint8_t DISC_TARGET_COUNT = sizeof(DISC_TARGETS);
-static const uint8_t DISC_EXPECTED     = DISC_TARGET_COUNT; // 9
+static const uint8_t DISC_TARGET_COUNT = sizeof(DISC_TARGETS);   // 9
+static const uint8_t DISC_EXPECTED     = DISC_TARGET_COUNT;
 
 // ---------- API pubblica ----------
 bool discovery_active() {

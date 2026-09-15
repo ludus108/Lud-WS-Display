@@ -47,5 +47,7 @@ void update_slider_target(int idx);
 void update_all_targets();
 void init_sd();
 void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h);
+lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y);
+lv_obj_t* create_timeline(lv_obj_t *parent, int x, int y, int w, int h);
 
 #endif
