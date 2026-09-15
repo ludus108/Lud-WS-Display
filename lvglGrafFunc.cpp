@@ -508,6 +508,42 @@ int dot_y = center_y + (int)(radius * sinf(rad)) - 4;
 
     lv_obj_add_event_cb(arc, earc_changed, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)idx);
 }
+// ========================== POT CONTAINER (6 arc multi-funzione) ==========================
+// Crea un contenitore con 6 arc allineati orizzontalmente (P1..P6) con pad di 25px.
+// Il contenitore e' riutilizzabile su qualsiasi pagina: la posizione (x,y) e'
+// relativa al parent. Ritorna il puntatore al contenitore per eventuali
+// personalizzazioni (es. nasconderlo, spostarlo, applicare stili).
+//
+// Layout:
+//   [P1] 25px [P2] 25px [P3] 25px [P4] 25px [P5] 25px [P6]
+//   |<------------- 605 px ------------->|
+//   Altezza: 100 px (20 px sopra per il pallino + 80 px di arc)
+lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y) {
+    const int arc_w   = 80;
+    const int arc_h   = 80;
+    const int gap     = 25;
+    const int pad_top = 20;   // spazio per il pallino rosso che sporge in alto
+
+    const int cont_w = 6 * arc_w + 5 * gap;   // 605
+    const int cont_h = pad_top + arc_h;        // 100
+
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_set_size(cont, cont_w, cont_h);
+    lv_obj_set_pos(cont, x, y);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    static const char *pnames[6] = {"P1","P2","P3","P4","P5","P6"};
+    for (int i = 0; i < 6; i++) {
+        int px = i * (arc_w + gap);
+        arc_with_image(cont, i, px, pad_top, arc_w, arc_h, pnames[i]);
+    }
+
+    pot_container = cont;
+    return cont;
+}
 // ========================== SUBMENU ==========================
 void submenu(lv_obj_t *p) {
     lv_obj_add_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
@@ -728,7 +764,8 @@ void create_home() {
     for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-      for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+	for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
 
@@ -786,7 +823,8 @@ void create_page(const char *title) {
     for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-       for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+	   for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
 
@@ -850,12 +888,20 @@ void create_page(const char *title) {
         submenu(m);
         update_all_targets();
     }
-    else if (strncmp(title, "DCO", 3) == 0) {
-        int id = (g.synth && strcmp(g.synth, "SYNTH A") == 0) ? SRC_A : SRC_B;
-        h_slider(m, id);
-        home_btn(m, -2);
+else if (strncmp(title, "MOD", 3) == 0) {
+    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+
+    if (isA) {
+        // 6 pot multi-funzione in contenitore riutilizzabile, in riga.
+        // Centrato orizzontalmente: (800 - 605) / 2 ≈ 100
+        create_pot_container(m, 100, 100);
     }
-        else if (strncmp(title, "MOD", 3) == 0) {
+	
+    // Synth B/MOD: nessun arc
+
+    home_btn(m, -2);
+}
+    else if (strncmp(title, "MOD", 3) == 0) {
         bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
 
         if (isA) {

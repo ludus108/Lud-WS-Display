@@ -52,6 +52,7 @@ lv_obj_t *preset_dropdown_A = NULL;
 lv_obj_t *preset_dropdown_B = NULL;
 lv_obj_t *preset_label_A = NULL;
 lv_obj_t *preset_label_B = NULL;
+lv_obj_t *pot_container = nullptr;
 int pendingPresetA = -1;
 int pendingPresetB = -1;
 bool blink_state = false;

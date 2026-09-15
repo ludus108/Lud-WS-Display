@@ -127,7 +127,10 @@ extern lv_timer_t *mt;
 extern float pkL, pkR, pkC;
 extern const char* last_version;
 extern uint8_t sliderColorDepth;
-
+// ========================== POT CONTAINER (6 arc multi-funzione) ==========================
+// Contenitore condiviso tra pagine. Non e' di proprieta' di una pagina specifica:
+// viene ricreato ogni volta che la pagina che lo ospita viene ricostruita.
+extern lv_obj_t *pot_container;
 // ========================== PRESET ARRAY ==========================
 extern int presetNumA, presetNumB;
 extern int timbrA[MAX_preset][MAX_timbrA];
