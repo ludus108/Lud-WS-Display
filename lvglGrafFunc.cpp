@@ -459,17 +459,17 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
     // ---------- Label P al centro ----------
     lv_obj_t *plabel = lv_label_create(parent);
     lv_label_set_text(plabel, pname);
-    lv_obj_set_style_text_color(plabel, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(plabel, lv_color_hex(0xFFAA00), 0);
     lv_obj_set_style_text_font (plabel, &lv_font_montserrat_20, 0);
-    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align_to(plabel, arc, LV_ALIGN_CENTER, 0, 0);
     g.arc_label_p[idx] = plabel;
 
     // ---------- Valore sotto la label P ----------
     lv_obj_t *val_label = lv_label_create(parent);
-    lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFAA00), 0);
-    lv_obj_set_style_text_font (val_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(val_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font (val_label, &lv_font_montserrat_20, 0);
     lv_label_set_text_fmt(val_label, "%d", g.arc_value[idx]);
-    lv_obj_align_to(val_label, arc, LV_ALIGN_BOTTOM_MID, 0, 12);
+    lv_obj_align_to(val_label, arc, LV_ALIGN_BOTTOM_MID, 0, 0);
     g.arc_label_value[idx] = val_label;
 
     // ---------- Pallino ROSSO ----------
