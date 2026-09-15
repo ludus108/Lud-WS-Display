@@ -473,14 +473,18 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
     g.arc_label_value[idx] = val_label;
 
     // ---------- Pallino ROSSO ----------
-    int angle = (g.arc_target[idx] * 360 / 100) - 90;
-    if (angle < 0) angle += 360;
-    int radius   = (w / 2) - 2 + 10;
-    int center_x = x + w / 2;
-    int center_y = y + h / 2;
-    float rad = angle * PI / 180.0f;
-    int dot_x = center_x + (int)(radius * cosf(rad)) - 4;
-    int dot_y = center_y + (int)(radius * sinf(rad)) - 4;
+// LVGL v8 default arc: bg_angles = 135° -> 45°  (sweep 270° orario)
+// value 0..100  ->  angolo 135 .. 405 (=45)
+float angle = 135.0f + (g.arc_target[idx] * 2.7f);   // 2.7 = 270/100
+if (angle >= 360.0f) angle -= 360.0f;
+if (angle <  0.0f)   angle += 360.0f;
+
+int radius   = (w / 2) - 2 + 10;
+int center_x = x + w / 2;
+int center_y = y + h / 2;
+float rad = angle * PI / 180.0f;
+int dot_x = center_x + (int)(radius * cosf(rad)) - 4;
+int dot_y = center_y + (int)(radius * sinf(rad)) - 4;
 
     lv_obj_t *dot = lv_obj_create(parent);
     lv_obj_set_size(dot, 8, 8);
