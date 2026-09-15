@@ -9,6 +9,9 @@
 #include "lvgl_v8_port.h"   // per lvgl_port_lock/unlock
 
 // ========================== VARIABILI STATICHE LOCALI ==========================
+#define TL_ACTIVE_OPA  70      // 0..255 -> 0% .. 100%  (180 ≈ 70%)
+#define TL_IDLE_OPA      0
+
  lv_obj_t *rename_win = NULL;
  lv_obj_t *rename_ta = NULL;
  int rename_preset_idx = 0;
@@ -553,6 +556,77 @@ static void format_time(uint32_t ms, char *buf, size_t buflen) {
     snprintf(buf, buflen, "%02u:%02u", (unsigned)m, (unsigned)s);
 }
 
+// ========================== TIMELINE CONTROLS ==========================
+void tl_set_buttons(int active) {
+    if (timeline_btn_init && lv_obj_is_valid(timeline_btn_init))
+        lv_obj_set_style_img_recolor_opa(timeline_btn_init,
+            (active == 0) ? TL_ACTIVE_OPA : TL_IDLE_OPA, 0);
+    if (timeline_btn_stop && lv_obj_is_valid(timeline_btn_stop))
+        lv_obj_set_style_img_recolor_opa(timeline_btn_stop,
+            (active == 1) ? TL_ACTIVE_OPA : TL_IDLE_OPA, 0);
+    if (timeline_btn_play && lv_obj_is_valid(timeline_btn_play))
+        lv_obj_set_style_img_recolor_opa(timeline_btn_play,
+            (active == 2) ? TL_ACTIVE_OPA : TL_IDLE_OPA, 0);
+}
+
+static void tl_init_cb(lv_event_t *e) {
+    (void)e;
+    if (timeline_playing) return;      // init solo se in STOP
+    timeline_demo_ms = 0;
+    update_timeline(0, 60000);
+    tl_set_buttons(0);
+}
+
+static void tl_stop_cb(lv_event_t *e) {
+    (void)e;
+    timeline_playing = false;
+    tl_set_buttons(1);
+}
+
+static void tl_play_cb(lv_event_t *e) {
+    (void)e;
+    timeline_playing = true;
+    tl_set_buttons(2);
+}
+
+lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y) {
+    const int btn_w = 100;
+    const int btn_h = 80;
+    const int gap   = 5;
+
+    // --- INIT (left) - azzurro ---
+    timeline_btn_init = lv_img_create(parent);
+    lv_img_set_src(timeline_btn_init, &img_bott_init);
+    lv_obj_set_pos(timeline_btn_init, x, y);
+    lv_obj_set_size(timeline_btn_init, btn_w, btn_h);
+    lv_obj_add_flag(timeline_btn_init, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_img_recolor(timeline_btn_init, lv_color_hex(0x00AAFF), 0);
+    lv_obj_set_style_img_recolor_opa(timeline_btn_init, LV_OPA_TRANSP, 0);
+    lv_obj_add_event_cb(timeline_btn_init, tl_init_cb, LV_EVENT_CLICKED, NULL);
+
+    // --- STOP (center) - giallo ---
+    timeline_btn_stop = lv_img_create(parent);
+    lv_img_set_src(timeline_btn_stop, &img_bott_stop);
+    lv_obj_set_pos(timeline_btn_stop, x + btn_w + gap, y);
+    lv_obj_set_size(timeline_btn_stop, btn_w, btn_h);
+    lv_obj_add_flag(timeline_btn_stop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_img_recolor(timeline_btn_stop, lv_color_hex(0xFFFF00), 0);
+    lv_obj_set_style_img_recolor_opa(timeline_btn_stop, LV_OPA_TRANSP, 0);
+    lv_obj_add_event_cb(timeline_btn_stop, tl_stop_cb, LV_EVENT_CLICKED, NULL);
+
+    // --- PLAY (right) - verde ---
+    timeline_btn_play = lv_img_create(parent);
+    lv_img_set_src(timeline_btn_play, &img_bott_play);
+    lv_obj_set_pos(timeline_btn_play, x + 2*(btn_w + gap), y);
+    lv_obj_set_size(timeline_btn_play, btn_w, btn_h);
+    lv_obj_add_flag(timeline_btn_play, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_img_recolor(timeline_btn_play, lv_color_hex(0x00FF00), 0);
+    lv_obj_set_style_img_recolor_opa(timeline_btn_play, LV_OPA_TRANSP, 0);
+    lv_obj_add_event_cb(timeline_btn_play, tl_play_cb, LV_EVENT_CLICKED, NULL);
+
+    return timeline_btn_init;
+}
+
 lv_obj_t* create_timeline(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_obj_t *cont = lv_obj_create(parent);
     lv_obj_set_size(cont, w, h);
@@ -710,6 +784,7 @@ lv_obj_t* meter(lv_obj_t *p, int x, int y, int w, int h, const char *label, bool
 }
 
 void update_meters() {
+	if (!timeline_playing) return;  
     static float ph=0; ph += 0.1f; if (ph > 6.28f) ph -= 6.28f;
     float vL = constrain(0.5f + 0.5f*sinf(ph) + 0.05f*((float)random(0,100)/100.0f - 0.5f), 0, 1);
     float vR = constrain(0.5f + 0.5f*cosf(ph*0.7f) + 0.05f*((float)random(0,100)/100.0f - 0.5f), 0, 1);
@@ -882,6 +957,10 @@ pot_container = NULL;
 	pot_container = NULL;
 timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
 timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
+timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
+timeline_playing  = false;
+timeline_demo_ms  = 0;
+if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -944,6 +1023,10 @@ pot_container = NULL;
 	pot_container = NULL;
 timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
 timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
+timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
+timeline_playing  = false;
+timeline_demo_ms  = 0;
+if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -962,35 +1045,42 @@ timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
         lv_obj_align(t, LV_ALIGN_TOP_LEFT, 10, 5);
     }
 
-    if (strcmp(title, "PLAY") == 0) {
-    g.play = 1; int w=22, h=150;
+  if (strcmp(title, "PLAY") == 0) {
+    g.play = 1;
+    int w = 22, h = 150;
+
+    // Meter
     mL = meter(m, 685, 10, w, h, "L", 0);
     mR = meter(m, 709, 10, w, h, "R", 0);
     mC = meter(m, 750, 10, w, h, "C", 1);
     if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
 
-    // Time line centrata verticalmente (display 480 px, timeline 40 px)
-    // y = (480 - 40) / 2 = 220
+    // Timeline centrata verticalmente (480 - 40) / 2 = 220
     create_timeline(m, 50, 220, 700, 40);
 
-    // ---- Demo: timeline avanza su 60 secondi, poi riparte da 0 ----
+    // Controlli timeline (pad 5 sotto la timeline: 220+40+5 = 265)
+    create_timeline_controls(m, 50, 265);
+
+    // Stato iniziale: STOP
+    timeline_playing = false;
+    timeline_demo_ms = 0;
+    update_timeline(0, 60000);
+    tl_set_buttons(1);
+
+    // Timer demo: avanza di 100 ms per tick, ciclo totale 60 s
     if (!tdt) {
-        timeline_demo_ms = 0;
         tdt = lv_timer_create([](lv_timer_t*){
-            timeline_demo_ms += 100;                 // 100 ms per tick
-            if (timeline_demo_ms > 60000)            // 60 s totali
-                timeline_demo_ms = 0;
-            update_timeline(timeline_demo_ms, 60000);
-        }, 100, 0);                                  // tick ogni 100 ms = 10 Hz
+            if (timeline_playing) {
+                timeline_demo_ms += 100;
+                if (timeline_demo_ms > 60000) timeline_demo_ms = 0;
+                update_timeline(timeline_demo_ms, 60000);
+            }
+        }, 100, 0);
     }
 
     home_btn(m, -1);
 }
-if (strcmp(title, "PLAY") != 0 && tdt) {
-    lv_timer_del(tdt);
-    tdt = nullptr;
-    timeline_demo_ms = 0;
-}   
+ 
    else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
         g.synth = title;
         int id = (strcmp(title, "SYNTH A") == 0) ? 0 : 1;

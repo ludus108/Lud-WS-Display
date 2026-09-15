@@ -1,5 +1,7 @@
 // images.c - Ponte per compilare i file immagine in C
-
+#include "images/img_bott_play.c"
+#include "images/img_bott_stop.c"
+#include "images/img_bott_init.c"
 #include "images/img_slider_track.c"
 #include "images/img_slider_indicator.c"
 #include "images/img_slider_knob.c"

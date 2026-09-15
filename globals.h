@@ -163,6 +163,9 @@ extern int grid_btn_count[2];
 extern int grid_selected_idx[2];
 
 // ========================== IMMAGINI (dichiarazioni esterne) ==========================
+extern const lv_img_dsc_t img_bott_init;
+extern const lv_img_dsc_t img_bott_stop;
+extern const lv_img_dsc_t img_bott_play;
 extern const lv_img_dsc_t img_slider_track;
 extern const lv_img_dsc_t img_slider_indicator;
 extern const lv_img_dsc_t img_slider_knob;
@@ -260,6 +263,16 @@ extern lv_obj_t *timeline_label_tot;
 extern uint32_t  timeline_cur_ms;
 extern uint32_t  timeline_total_ms;
 extern int       timeline_bar_w;
+// ========================== TIMELINE CONTROLS ==========================
+extern lv_obj_t    *timeline_btn_init;
+extern lv_obj_t    *timeline_btn_stop;
+extern lv_obj_t    *timeline_btn_play;
+extern bool         timeline_playing;
+extern lv_timer_t  *tdt;
+extern uint32_t     timeline_demo_ms;
+
+void tl_set_buttons(int active);
+lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y);
 
 void update_timeline(uint32_t cur_ms, uint32_t tot_ms);
 
