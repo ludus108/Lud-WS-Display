@@ -70,7 +70,8 @@ lv_obj_t *timeline_label_tot = nullptr;
 uint32_t  timeline_cur_ms    = 0;
 uint32_t  timeline_total_ms  = 0;
 int       timeline_bar_w     = 0;
-
+lv_timer_t *tdt             = nullptr;
+uint32_t    timeline_demo_ms = 0;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},

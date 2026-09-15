@@ -52,6 +52,10 @@ extern struct WaveDef WAVE_DEFS[NUM_WAVES];
 #define FM_ITEMS "FM 0\nFM 1\nFM 2\nFM 3\nFM 4\nFM 5\nFM 6\nFM 7"
 #define AM_ITEMS "AM 1\nAM 2\nAM 3\nAM 4\nAM 5\nAM 6\nAM 7\nAM 8"
 
+// ========================== DIMENSIONI ARRAY SLIDER ==========================
+#define MAX_SLIDERS 8    // VCF (0..3) + VCA (4..7)
+#define MAX_ARCS    6    // MOD Synth A: P1..P6
+
 // ========================== PRESET (INDIPENDENTI) ==========================
 #define MAX_timbrA 23
 #define MAX_timbrB 26
@@ -243,6 +247,9 @@ bool discovery_running();
 
 // ========================== LOG WIDGET (estratto) ==========================
 void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h);
+// ========================== TIMELINE DEMO ==========================
+extern lv_timer_t *tdt;              // timeline demo timer
+extern uint32_t    timeline_demo_ms; // contatore demo (ms)
 // ========================== TIMELINE (riproducibile su qualsiasi pagina) ==========================
 extern lv_obj_t *timeline_obj;
 extern lv_obj_t *timeline_bar_bg;

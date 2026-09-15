@@ -710,7 +710,7 @@ lv_obj_t* meter(lv_obj_t *p, int x, int y, int w, int h, const char *label, bool
 }
 
 void update_meters() {
-     float ph=0; ph += 0.1f; if (ph > 6.28f) ph -= 6.28f;
+    static float ph=0; ph += 0.1f; if (ph > 6.28f) ph -= 6.28f;
     float vL = constrain(0.5f + 0.5f*sinf(ph) + 0.05f*((float)random(0,100)/100.0f - 0.5f), 0, 1);
     float vR = constrain(0.5f + 0.5f*cosf(ph*0.7f) + 0.05f*((float)random(0,100)/100.0f - 0.5f), 0, 1);
     float vC = constrain((vL+vR)*0.5f * (1.0f - 0.3f*(vL+vR)*0.5f), 0, 1);
@@ -789,7 +789,7 @@ void save_bright() {
 
 // ========================== RESET FRECCINE ==========================
 void reset_arrows() {
-    for (int i=0; i<8; i++) {
+    for (int i = 0; i < MAX_SLIDERS; i++) {
         crs[i] = 0;
         if (arr[i] && lv_obj_is_valid(arr[i])) {
             lv_obj_clear_flag(arr[i], LV_OBJ_FLAG_HIDDEN);
@@ -800,6 +800,7 @@ void reset_arrows() {
             update_slider_color(i, true);
         else slider_objs[i] = 0;
     }
+
     g.shape_crs_A = false;
     g.shape_crs_B = false;
     if (g.shape_arrow_A && lv_obj_is_valid(g.shape_arrow_A)) {
@@ -812,8 +813,8 @@ void reset_arrows() {
         if (g.shape_slider_B && lv_obj_is_valid(g.shape_slider_B))
             update_shape_slider_color(SRC_B, true);
     } else { g.shape_arrow_B = 0; g.shape_slider_B = 0; }
-	
-      for (int i = 0; i < 6; i++) {
+
+    for (int i = 0; i < MAX_ARCS; i++) {
         g.arc_crossed[i] = false;
         if (g.arc_obj[i] && lv_obj_is_valid(g.arc_obj[i])) {
             if (g.arc_arrow[i] && lv_obj_is_valid(g.arc_arrow[i])) {
@@ -827,6 +828,7 @@ void reset_arrows() {
             g.arc_arrow[i] = NULL;
         }
     }
+
     log_add("Freccine ripristinate", lv_color_hex(0x66AAFF));
     toast_show("Freccine ripristinate!", lv_color_hex(0x66AAFF), TOAST_DUR);
 }
@@ -866,13 +868,14 @@ void create_home() {
     if (blink_timer) { lv_timer_del(blink_timer); blink_timer = NULL; blink_state = false; }
     close_rename_window();
     if (g.play) { stop_meters(); g.play = 0; }
+	if (tdt) { lv_timer_del(tdt); tdt = nullptr; timeline_demo_ms = 0; }
     if (g.page) { lv_obj_del(g.page); g.page = 0; }
     g.synth = 0; g.err = g.log_v = g.toast_v = 0;
     g.log_c = g.log_f = g.toast = 0;
-    for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
+    for (int i=0; i<MAX_SLIDERS; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-	for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+	for (int i = 0; i < MAX_ARCS; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
 pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
@@ -931,10 +934,10 @@ void create_page(const char *title) {
     if (g.play && strcmp(title, "PLAY") != 0) { stop_meters(); g.play = 0; }
     if (g.page) { lv_obj_del(g.page); g.page = 0; }
     g.log_c = g.log_f = g.toast = 0; g.toast_v = 0;
-    for (int i=0; i<6; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
+    for (int i=0; i<MAX_SLIDERS; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
     g.shape_arrow_A = g.shape_arrow_B = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-	   for (int i = 0; i < 6; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
+	   for (int i = 0; i < MAX_ARCS; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
 pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
@@ -966,12 +969,29 @@ timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
     mC = meter(m, 750, 10, w, h, "C", 1);
     if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
 
-    // Time line in basso
-    create_timeline(m, 50, 400, 700, 40);
+    // Time line centrata verticalmente (display 480 px, timeline 40 px)
+    // y = (480 - 40) / 2 = 220
+    create_timeline(m, 50, 220, 700, 40);
+
+    // ---- Demo: timeline avanza su 60 secondi, poi riparte da 0 ----
+    if (!tdt) {
+        timeline_demo_ms = 0;
+        tdt = lv_timer_create([](lv_timer_t*){
+            timeline_demo_ms += 100;                 // 100 ms per tick
+            if (timeline_demo_ms > 60000)            // 60 s totali
+                timeline_demo_ms = 0;
+            update_timeline(timeline_demo_ms, 60000);
+        }, 100, 0);                                  // tick ogni 100 ms = 10 Hz
+    }
 
     home_btn(m, -1);
 }
-    else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
+if (strcmp(title, "PLAY") != 0 && tdt) {
+    lv_timer_del(tdt);
+    tdt = nullptr;
+    timeline_demo_ms = 0;
+}   
+   else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
         g.synth = title;
         int id = (strcmp(title, "SYNTH A") == 0) ? 0 : 1;
         const char *lbl = (id == 0) ? "Preset A" : "Preset B";
@@ -1006,6 +1026,12 @@ timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
         submenu(m);
         update_all_targets();
     }
+	else if (strncmp(title, "DCO", 3) == 0) {
+    int id = (g.synth && strcmp(g.synth, "SYNTH A") == 0) ? SRC_A : SRC_B;
+    h_slider(m, id);
+    home_btn(m, -2);
+}
+
 else if (strncmp(title, "MOD", 3) == 0) {
     bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
 
@@ -1019,28 +1045,7 @@ else if (strncmp(title, "MOD", 3) == 0) {
 
     home_btn(m, -2);
 }
-    else if (strncmp(title, "MOD", 3) == 0) {
-        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-
-        if (isA) {
-            // 6 pot: Data_Pot_1 .. Data_Pot_6
-            static const char *pnames[6] = {"P1","P2","P3","P4","P5","P6"};
-            const int arc_w = 80, arc_h = 80;
-           const int x0 = 140,  y0 = 100;        // ricalcolato per centrare
-        const int dx = 180, dy = 160;         // spaziatura per arc da 80px
-
-            for (int i = 0; i < 6; i++) {
-                int col = i % 3;
-                int row = i / 3;
-                int x   = x0 + col * dx;
-                int y   = y0 + row * dy;
-                arc_with_image(m, i, x, y, arc_w, arc_h, pnames[i]);
-            }
-        }
-        // Synth B/MOD: nessun arc
-
-        home_btn(m, -2);
-    }
+ 
         else if (strcmp(title, "SET UP") == 0) {
         // --- Pulsante "init SD" ---
         lv_obj_t *btn = lv_btn_create(m);
