@@ -1,6 +1,7 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 /**
  add arc pot x 6
+ ulti
  * LUD-WS - Display Versione 0.0.12
  * ============================================================
  * - aggiunto:
@@ -60,6 +61,15 @@ lv_timer_t *blink_timer = NULL;
 lv_obj_t *grid_btns[2][20];
 int grid_btn_count[2] = {0, 0};
 int grid_selected_idx[2] = {0, 0};
+lv_obj_t *timeline_obj       = nullptr;
+lv_obj_t *timeline_bar_bg    = nullptr;
+lv_obj_t *timeline_bar_fill  = nullptr;
+lv_obj_t *timeline_cursor    = nullptr;
+lv_obj_t *timeline_label_cur = nullptr;
+lv_obj_t *timeline_label_tot = nullptr;
+uint32_t  timeline_cur_ms    = 0;
+uint32_t  timeline_total_ms  = 0;
+int       timeline_bar_w     = 0;
 
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {

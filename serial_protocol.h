@@ -28,6 +28,20 @@ struct LwsFrame {
 static const uint8_t LWS_END1 = '&';
 static const uint8_t LWS_END2 = '!';
 
+// ========================== LWS COMMAND CODES ==========================
+// Codici comando LWSv1.1. Definiti qui perche' sono condivisi tra
+// Display, Router e tutti i nodi MCU.
+#define CMD_PING        'p'   // [target_id]                  richiesta presenza
+#define CMD_PONG        'P'   // (vuoto)                      risposta presenza
+#define CMD_PARAM       'S'   // [target,key,value]           param fire-and-forget
+#define CMD_PARAM_REL   'R'   // [target,key,value]           param reliable (ACK)
+#define CMD_PARAM_ACK   'A'   // [acked_seq,acked_cmd]        ACK per PARAM_REL
+#define CMD_ERROR       'E'   // [target,msg...]              errore
+#define CMD_TIMELINE    'B'   // [cur_ms,tot_ms] i32 LE       timeline playback
+#define CMD_MIDI_CC     'c'   // [cc,value]                   MIDI Control Change
+#define CMD_MIDI_NOTE   'n'   // [onoff,pitch,velocity]       MIDI Note On/Off
+#define CMD_MIDI_BEND   'b'   // [bend_i32_le]                MIDI Pitch Bend
+
 // ---------------- CRC-8/ATM (poly 0x07, init 0x00) ----------------
 inline uint8_t lws_crc8_update(uint8_t crc, uint8_t b) {
   crc ^= b;
@@ -123,7 +137,6 @@ struct LwsParser {
       case ST_END2:
         st = ST_SENDER;
         if (b == LWS_END2) {
-          // Verifica CRC
           uint8_t crc = 0;
           crc = lws_crc8_update(crc, f.sender);
           crc = lws_crc8_update(crc, f.seq);
@@ -132,7 +145,7 @@ struct LwsParser {
           for (uint8_t i = 0; i < f.len; i++) crc = lws_crc8_update(crc, f.data[i]);
 
           if (crc == rx_crc) { out = f; return true; }
-          // CRC errato: scarta silenziosamente, parser gia' risincronizzato
+          // CRC errato: scarta silenziosamente
         }
         break;
     }
@@ -140,7 +153,7 @@ struct LwsParser {
   }
 };
 
-// ---------------- i32 LE helpers (invariati) ----------------
+// ---------------- i32 LE helpers ----------------
 inline void lws_pack_i32_le(int32_t v, uint8_t out[4]) {
   out[0] = (uint8_t)(v & 0xFF);
   out[1] = (uint8_t)((v >> 8) & 0xFF);

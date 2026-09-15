@@ -59,15 +59,6 @@
 #define MAX_MCU         10          // [10.1] era 9, ora include Power
 #define PING_TIMEOUT_MS 2000
 
-// ========================== COMMAND CODES (LWSv1.1) ==========================
-#define CMD_PING        'p'   // Display -> MCU : richiesta presenza, payload=[target]
-#define CMD_PONG        'P'   // MCU -> Display : risposta, payload vuoto
-#define CMD_PARAM       'S'   // bidir : update parametro, fire-and-forget
-#define CMD_PARAM_REL   'R'   // [10.3] bidir : update parametro, richiede ACK
-#define CMD_PARAM_ACK   'A'   // [10.3] ACK per CMD_PARAM_REL, payload=[seq,cmd]
-#define CMD_GET_PARAM   'G'   // riservato
-#define CMD_ERROR       'E'   // MCU -> Display : errore, payload=[target,msg...]
-#define CMD_STATUS      'Z'   // riservato
 
 // ========================== PARAMETER MAPPING (invariato) ==========================
 struct ParamMapA { char key; uint8_t index; };
@@ -291,13 +282,43 @@ static void process_frame(const LwsFrame &f) {
                 msg[l] = '\0';
             }
             log_add(msg, lv_color_hex(0xFF0000));
-            for (int i = 0; i < MAX_MCU; i++)
+            for (int i = 0; i < MAX_MCU; i++){
                 if (MCU_IDS[i] == (char)f.sender) { mcu_status.online[i] = false; break; }
+		}
+		}
             break;
+			case CMD_TIMELINE: {
+    if (f.len >= 8) {
+        uint32_t cur = (uint32_t)lws_unpack_i32_le(&f.data[0]);
+        uint32_t tot = (uint32_t)lws_unpack_i32_le(&f.data[4]);
+        update_timeline(cur, tot);
+    }
+			}
+    break;
+	case CMD_MIDI_CC: {
+            if (f.len >= 2) {
+                Serial.printf("[MIDI] CC  %u = %u (from %s)\n",
+                              f.data[0], f.data[1], sender_name);
+            }
+	}
+            break;
+        case CMD_MIDI_NOTE: {
+            if (f.len >= 3) {
+                Serial.printf("[MIDI] %s pitch=%u vel=%u (from %s)\n",
+                              f.data[0] ? "NOTE_ON " : "NOTE_OFF",
+                              f.data[1], f.data[2], sender_name);
+            }   
         }
-
-        default:
-            break;
+     break;
+        case CMD_MIDI_BEND: {
+            if (f.len >= 4) {
+                int32_t bend = lws_unpack_i32_le(&f.data[0]);
+                Serial.printf("[MIDI] BEND %ld (from %s)\n",
+                              (long)bend, sender_name);
+            }
+           
+        }
+ break;
     }
 }
 

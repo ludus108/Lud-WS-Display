@@ -243,5 +243,17 @@ bool discovery_running();
 
 // ========================== LOG WIDGET (estratto) ==========================
 void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h);
+// ========================== TIMELINE (riproducibile su qualsiasi pagina) ==========================
+extern lv_obj_t *timeline_obj;
+extern lv_obj_t *timeline_bar_bg;
+extern lv_obj_t *timeline_bar_fill;
+extern lv_obj_t *timeline_cursor;
+extern lv_obj_t *timeline_label_cur;
+extern lv_obj_t *timeline_label_tot;
+extern uint32_t  timeline_cur_ms;
+extern uint32_t  timeline_total_ms;
+extern int       timeline_bar_w;
+
+void update_timeline(uint32_t cur_ms, uint32_t tot_ms);
 
 #endif

@@ -544,6 +544,114 @@ lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y) {
     pot_container = cont;
     return cont;
 }
+// ========================== TIMELINE ==========================
+static void format_time(uint32_t ms, char *buf, size_t buflen) {
+    uint32_t total_s = ms / 1000;
+    uint32_t m = total_s / 60;
+    uint32_t s = total_s % 60;
+    if (m > 99) m = 99;
+    snprintf(buf, buflen, "%02u:%02u", (unsigned)m, (unsigned)s);
+}
+
+lv_obj_t* create_timeline(lv_obj_t *parent, int x, int y, int w, int h) {
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_set_size(cont, w, h);
+    lv_obj_set_pos(cont, x, y);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    const int time_w = 70;
+    const int bar_x  = time_w + 10;
+    const int bar_w  = w - 2 * (time_w + 10);
+    const int bar_h  = 8;
+    const int bar_y  = (h - bar_h) / 2;
+
+    // Tempo corrente (sinistra)
+    timeline_label_cur = lv_label_create(cont);
+    lv_label_set_text(timeline_label_cur, "00:00");
+    lv_obj_set_style_text_color(timeline_label_cur, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(timeline_label_cur, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(timeline_label_cur, 0, (h - 22) / 2);
+
+    // Sfondo barra
+    timeline_bar_bg = lv_obj_create(cont);
+    lv_obj_set_size(timeline_bar_bg, bar_w, bar_h);
+    lv_obj_set_pos(timeline_bar_bg, bar_x, bar_y);
+    lv_obj_set_style_bg_color(timeline_bar_bg, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_border_width(timeline_bar_bg, 0, 0);
+    lv_obj_set_style_radius(timeline_bar_bg, bar_h / 2, 0);
+    lv_obj_set_style_pad_all(timeline_bar_bg, 0, 0);
+    lv_obj_clear_flag(timeline_bar_bg, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Riempimento progresso
+    timeline_bar_fill = lv_obj_create(cont);
+    lv_obj_set_size(timeline_bar_fill, 0, bar_h);
+    lv_obj_set_pos(timeline_bar_fill, bar_x, bar_y);
+    lv_obj_set_style_bg_color(timeline_bar_fill, lv_color_hex(0x00AAFF), 0);
+    lv_obj_set_style_border_width(timeline_bar_fill, 0, 0);
+    lv_obj_set_style_radius(timeline_bar_fill, bar_h / 2, 0);
+    lv_obj_set_style_pad_all(timeline_bar_fill, 0, 0);
+    lv_obj_clear_flag(timeline_bar_fill, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Cursore
+    timeline_cursor = lv_obj_create(cont);
+    lv_obj_set_size(timeline_cursor, 4, h - 16);
+    lv_obj_set_pos(timeline_cursor, bar_x - 2, 8);
+    lv_obj_set_style_bg_color(timeline_cursor, lv_color_hex(0xFFAA00), 0);
+    lv_obj_set_style_border_width(timeline_cursor, 0, 0);
+    lv_obj_set_style_radius(timeline_cursor, 2, 0);
+    lv_obj_clear_flag(timeline_cursor, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Tempo totale (destra)
+    timeline_label_tot = lv_label_create(cont);
+    lv_label_set_text(timeline_label_tot, "00:00");
+    lv_obj_set_style_text_color(timeline_label_tot, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(timeline_label_tot, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(timeline_label_tot, w - time_w, (h - 22) / 2);
+
+    timeline_bar_w = bar_w;
+    timeline_obj   = cont;
+
+    update_timeline(timeline_cur_ms, timeline_total_ms);
+    return cont;
+}
+
+void update_timeline(uint32_t cur_ms, uint32_t tot_ms) {
+    timeline_cur_ms   = cur_ms;
+    timeline_total_ms = tot_ms;
+
+    char buf[16];
+
+    if (timeline_label_cur && lv_obj_is_valid(timeline_label_cur)) {
+        format_time(cur_ms, buf, sizeof(buf));
+        lv_label_set_text(timeline_label_cur, buf);
+    }
+    if (timeline_label_tot && lv_obj_is_valid(timeline_label_tot)) {
+        format_time(tot_ms, buf, sizeof(buf));
+        lv_label_set_text(timeline_label_tot, buf);
+    }
+
+    float pct = 0.0f;
+    if (tot_ms > 0) pct = (float)cur_ms / (float)tot_ms;
+    if (pct < 0.0f) pct = 0.0f;
+    if (pct > 1.0f) pct = 1.0f;
+
+    if (timeline_bar_fill && lv_obj_is_valid(timeline_bar_fill)) {
+        int fill_w = (int)(timeline_bar_w * pct);
+        if (fill_w < 1 && pct > 0.0f) fill_w = 1;
+        lv_obj_set_width(timeline_bar_fill, fill_w);
+    }
+
+    if (timeline_cursor && lv_obj_is_valid(timeline_cursor) &&
+        timeline_bar_bg && lv_obj_is_valid(timeline_bar_bg)) {
+        int bg_x = lv_obj_get_x(timeline_bar_bg);
+        int cx   = bg_x + (int)(timeline_bar_w * pct) - 2;
+        lv_obj_set_x(timeline_cursor, cx);
+    }
+}
+
 // ========================== SUBMENU ==========================
 void submenu(lv_obj_t *p) {
     lv_obj_add_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
@@ -768,6 +876,9 @@ void create_home() {
 pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
+	pot_container = NULL;
+timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
+timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -827,6 +938,9 @@ void create_page(const char *title) {
 pot_container = NULL;
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A = preset_label_B = NULL;
+	pot_container = NULL;
+timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
+timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -846,13 +960,17 @@ pot_container = NULL;
     }
 
     if (strcmp(title, "PLAY") == 0) {
-        g.play = 1; int w=22, h=150;
-        mL = meter(m, 685, 10, w, h, "L", 0);
-        mR = meter(m, 709, 10, w, h, "R", 0);
-        mC = meter(m, 750, 10, w, h, "C", 1);
-        if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
-        home_btn(m, -1);
-    }
+    g.play = 1; int w=22, h=150;
+    mL = meter(m, 685, 10, w, h, "L", 0);
+    mR = meter(m, 709, 10, w, h, "R", 0);
+    mC = meter(m, 750, 10, w, h, "C", 1);
+    if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
+
+    // Time line in basso
+    create_timeline(m, 50, 400, 700, 40);
+
+    home_btn(m, -1);
+}
     else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
         g.synth = title;
         int id = (strcmp(title, "SYNTH A") == 0) ? 0 : 1;
