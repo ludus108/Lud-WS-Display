@@ -36,7 +36,7 @@ struct ShapeData shape_data[2];
 lv_obj_t *mL=0, *mR=0, *mC=0;
 lv_timer_t *mt=0;
 float pkL=0, pkR=0, pkC=0;
-const char* last_version = "V.0.11";
+const char* last_version = "V.0.12";
 uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
