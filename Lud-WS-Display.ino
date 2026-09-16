@@ -1,8 +1,7 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 /**
- add arc pot x 6
- ulti
- * LUD-WS - Display Versione 0.0.12
+ add env plotter 2 tracce
+ * LUD-WS - Display Versione 0.0.13
  * ============================================================
  * - aggiunto:
  
@@ -25,6 +24,7 @@
 #include "globals.h"
 
 // ========================== DEFINIZIONI VARIABILI GLOBALI ==========================
+const char* last_version = "V.0.13";
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
 lv_obj_t *slider_objs[8] = {0};
@@ -37,7 +37,6 @@ struct ShapeData shape_data[2];
 lv_obj_t *mL=0, *mR=0, *mC=0;
 lv_timer_t *mt=0;
 float pkL=0, pkR=0, pkC=0;
-const char* last_version = "V.0.12";
 uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
@@ -80,6 +79,8 @@ lv_obj_t          *env_chart_A = nullptr;
 lv_obj_t          *env_chart_B = nullptr;
 lv_chart_series_t *env_serie_A = nullptr;
 lv_chart_series_t *env_serie_B = nullptr;
+lv_chart_series_t *env_serie_tgt_A = nullptr;
+lv_chart_series_t *env_serie_tgt_B = nullptr;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},

@@ -111,7 +111,7 @@ void h_slider(lv_obj_t *p, int id) {
 
     const char *cat_names[] = {"WF", "FM", "AM"};
     lv_color_t cat_colors[] = {lv_color_hex(0x00AAFF), lv_color_hex(0xFF8800), lv_color_hex(0xAA44FF)};
-    int cat_btn_w = 80, cat_btn_h = 90, cat_gap = 15, cat_start_x = 10, cat_y = 44;
+    int cat_btn_w = 80, cat_btn_h = 90, cat_gap = 15, cat_start_x = 10, cat_y = 94;
     for (int i = 0; i < 3; i++) {
         lv_obj_t *led = lv_obj_create(p);
         lv_obj_set_size(led, 12, 12);
@@ -119,7 +119,7 @@ void h_slider(lv_obj_t *p, int id) {
         lv_obj_set_style_bg_color(led, lv_color_hex(0x333333), 0);
         lv_obj_set_style_border_width(led, 0, 0);
         int led_x = cat_start_x + i * (cat_btn_w + cat_gap) + cat_btn_w/2 - 6;
-        lv_obj_set_pos(led, led_x, 30);
+        lv_obj_set_pos(led, led_x, 80);
         shape_data[id-1].leds[i] = led;
 
         lv_obj_t *cat_btn = lv_btn_create(p);
@@ -163,7 +163,7 @@ void h_slider(lv_obj_t *p, int id) {
     update_leds(shape_data[id-1].leds, CAT_WF);
     populate_grid(grid_container, WF_ITEMS, 0, id);
 
-    int plotter_x = 300, plotter_y = 60;
+    int plotter_x = 400, plotter_y = 110;
     lv_obj_t *chart = lv_chart_create(p);
     lv_obj_set_size(chart, 250, 130);
     lv_obj_set_pos(chart, plotter_x, plotter_y);
@@ -962,6 +962,7 @@ timeline_playing  = false;
 timeline_demo_ms  = 0;
 env_chart_A = env_chart_B = nullptr;
 env_serie_A = env_serie_B = nullptr;
+env_serie_tgt_A = env_serie_tgt_B = nullptr;
 if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
@@ -1010,7 +1011,7 @@ if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 // ========================== ENVELOPE PLOTTER (VCA) ==========================
 #define ENV_POINTS 60
 
-lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h) {
+lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h, bool isA) {
     lv_obj_t *chart = lv_chart_create(parent);
     lv_obj_set_size(chart, w, h);
     lv_obj_set_pos(chart, x, y);
@@ -1024,9 +1025,12 @@ lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_chart_set_div_line_count(chart, 0, 0);
     lv_obj_clear_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(chart, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_chart_series_t *serie = lv_chart_add_series(chart,
-                                lv_color_hex(0x00FFAA), LV_CHART_AXIS_PRIMARY_Y);
+// Serie 1: live (gialla)
+lv_chart_series_t *serie = lv_chart_add_series(chart,
+                            lv_color_hex(0xFFFF00), LV_CHART_AXIS_PRIMARY_Y);
+// Serie 2: target (rossa, tratteggiata concettualmente via colore)
+lv_chart_series_t *serie_tgt = lv_chart_add_series(chart,
+                            lv_color_hex(0xFF4444), LV_CHART_AXIS_PRIMARY_Y);
 
     // Label "ENV"
     lv_obj_t *lbl = lv_label_create(parent);
@@ -1034,50 +1038,36 @@ lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_pos(lbl, x, y - 18);
+	
+	if (isA) { env_chart_A = chart; env_serie_A = serie; env_serie_tgt_A = serie_tgt; }
+    else     { env_chart_B = chart; env_serie_B = serie; env_serie_tgt_B = serie_tgt; }
 
     return chart;
 }
 
-void update_env_plot(bool isA) {
-    lv_obj_t          *chart = isA ? env_chart_A : env_chart_B;
-    lv_chart_series_t *serie = isA ? env_serie_A : env_serie_B;
-    if (!chart || !lv_obj_is_valid(chart) || !serie) return;
-
-    // Legge i valori correnti degli slider VCA (indici 4..7)
-    int vA = 0, vD = 0, vS = 0, vR = 0;
-    if (slider_objs[4] && lv_obj_is_valid(slider_objs[4])) vA = lv_slider_get_value(slider_objs[4]);
-    if (slider_objs[5] && lv_obj_is_valid(slider_objs[5])) vD = lv_slider_get_value(slider_objs[5]);
-    if (slider_objs[6] && lv_obj_is_valid(slider_objs[6])) vS = lv_slider_get_value(slider_objs[6]);
-    if (slider_objs[7] && lv_obj_is_valid(slider_objs[7])) vR = lv_slider_get_value(slider_objs[7]);
-
-    // Tempi normalizzati (minimo 4 per evitare divisioni per zero)
+// ---------- helper: calcola la curva ADSR normalizzata ----------
+static void compute_env_points(int vA, int vD, int vS, int vR,
+                               int *out, int n) {
     float tA = (vA + 4) / 259.0f;
     float tD = (vD + 4) / 259.0f;
     float tR = (vR + 4) / 259.0f;
-    float tS = 0.4f;                        // sustain: durata visiva fissa
+    float tS = 0.4f;
     float total = tA + tD + tS + tR;
-
-    // Livello di sustain (0..1)
     float sLevel = vS / 255.0f;
 
-    // Genera la curva
-    for (int i = 0; i < ENV_POINTS; i++) {
-        float x     = (float)i / (ENV_POINTS - 1);
+    for (int i = 0; i < n; i++) {
+        float x     = (float)i / (n - 1);
         float t_pos = x * total;
         float y     = 0.0f;
 
         if (t_pos < tA) {
-            // ATTACK: 0 -> 1
             y = (tA > 0.001f) ? (t_pos / tA) : 1.0f;
         } else if (t_pos < tA + tD) {
-            // DECAY: 1 -> sLevel
             float d = t_pos - tA;
             y = 1.0f - (1.0f - sLevel) * (d / tD);
         } else if (t_pos < tA + tD + tS) {
-            // SUSTAIN
             y = sLevel;
         } else {
-            // RELEASE: sLevel -> 0
             float r = t_pos - tA - tD - tS;
             y = sLevel * (1.0f - r / tR);
         }
@@ -1085,11 +1075,55 @@ void update_env_plot(bool isA) {
         int yi = (int)(y * 100.0f);
         if (yi < 0)   yi = 0;
         if (yi > 100) yi = 100;
-        lv_chart_set_next_value(chart, serie, yi);
+        out[i] = yi;
     }
-    lv_chart_refresh(chart);
 }
 
+void update_env_plot(bool isA) {
+    lv_obj_t          *chart     = isA ? env_chart_A     : env_chart_B;
+    lv_chart_series_t *serie     = isA ? env_serie_A     : env_serie_B;
+    lv_chart_series_t *serie_tgt = isA ? env_serie_tgt_A : env_serie_tgt_B;
+    if (!chart || !lv_obj_is_valid(chart) || !serie) return;
+
+    // --- Valori correnti degli slider VCA (indici 4..7) ---
+    int cA = 0, cD = 0, cS = 0, cR = 0;
+    if (slider_objs[4] && lv_obj_is_valid(slider_objs[4])) cA = lv_slider_get_value(slider_objs[4]);
+    if (slider_objs[5] && lv_obj_is_valid(slider_objs[5])) cD = lv_slider_get_value(slider_objs[5]);
+    if (slider_objs[6] && lv_obj_is_valid(slider_objs[6])) cS = lv_slider_get_value(slider_objs[6]);
+    if (slider_objs[7] && lv_obj_is_valid(slider_objs[7])) cR = lv_slider_get_value(slider_objs[7]);
+
+    // --- Valori target del preset attivo (in g.pre[4..7]) ---
+    int tA = g.pre[4];
+    int tD = g.pre[5];
+    int tS = g.pre[6];
+    int tR = g.pre[7];
+
+    // --- Stato "tutti agganciati" ---
+    bool all_crossed = crs[4] && crs[5] && crs[6] && crs[7];
+
+    // --- Disegna la curva corrente ---
+    int pts_cur[ENV_POINTS];
+    compute_env_points(cA, cD, cS, cR, pts_cur, ENV_POINTS);
+    for (int i = 0; i < ENV_POINTS; i++)
+        lv_chart_set_next_value(chart, serie, pts_cur[i]);
+
+    // --- Curva target (mostrata solo se non tutti agganciati) ---
+    if (serie_tgt) {
+        if (all_crossed) {
+            lv_chart_hide_series(chart, serie_tgt, true);
+            lv_chart_set_series_color(chart, serie, lv_color_hex(0xFFFFFF));   // bianco
+        } else {
+            lv_chart_hide_series(chart, serie_tgt, false);
+            lv_chart_set_series_color(chart, serie, lv_color_hex(0xFFFF00));   // giallo
+            int pts_tgt[ENV_POINTS];
+            compute_env_points(tA, tD, tS, tR, pts_tgt, ENV_POINTS);
+            for (int i = 0; i < ENV_POINTS; i++)
+                lv_chart_set_next_value(chart, serie_tgt, pts_tgt[i]);
+        }
+    }
+
+    lv_chart_refresh(chart);
+}
 // ========================== PAGINE SECONDARIE ==========================
 void create_page(const char *title) {
     pendingPresetA = pendingPresetB = -1;
@@ -1113,6 +1147,7 @@ timeline_playing  = false;
 timeline_demo_ms  = 0;
 env_chart_A = env_chart_B = nullptr;
 env_serie_A = env_serie_B = nullptr;
+env_serie_tgt_A = env_serie_tgt_B = nullptr;
 if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
@@ -1267,13 +1302,10 @@ else if (strncmp(title, "MOD", 3) == 0) {
     for (int i=0; i<4; i++) slider(m, 20 + i*80, 96, labels[i], base + i, active_color, passed_color);
 
     // Solo per VCA: plotter envelope a destra
-    if (base == 4) {
-        lv_obj_t *chart = create_env_plot(m, 620, 116, 150, 100);
-        lv_chart_series_t *serie = lv_chart_get_series_next(chart, NULL);
-        if (isA) { env_chart_A = chart; env_serie_A = serie; }
-        else     { env_chart_B = chart; env_serie_B = serie; }
-        update_env_plot(isA);
-    }
+  if (base == 4) {
+    create_env_plot(m, 620, 116, 150, 100, isA);
+    update_env_plot(isA);
+}
 
     home_btn(m, -2);
 }
@@ -1428,9 +1460,9 @@ if (d->idx >= 4 && d->idx <= 7) {
     *last_val = cur;
 
     update_plotter_by_wave(d->id);
-    char logbuf[32];
-    snprintf(logbuf, sizeof(logbuf), "SHAPE %c: %d%%", (d->id == SRC_A) ? 'A' : 'B', cur);
-    log_add(logbuf, lv_color_hex(0x66AAFF));
+  //  char logbuf[32];
+//    snprintf(logbuf, sizeof(logbuf), "SHAPE %c: %d%%", (d->id == SRC_A) ? 'A' : 'B', cur);
+ //   log_add(logbuf, lv_color_hex(0x66AAFF));
 }
 
  void elist(lv_event_t *e) {

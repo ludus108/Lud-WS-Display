@@ -276,6 +276,8 @@ extern lv_obj_t           *env_chart_A;
 extern lv_obj_t           *env_chart_B;
 extern lv_chart_series_t  *env_serie_A;
 extern lv_chart_series_t  *env_serie_B;
+extern lv_chart_series_t  *env_serie_tgt_A;
+extern lv_chart_series_t  *env_serie_tgt_B;
 
 void update_env_plot(bool isA);
 lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h);

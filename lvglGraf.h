@@ -52,6 +52,6 @@ lv_obj_t* create_timeline(lv_obj_t *parent, int x, int y, int w, int h);
 void tl_set_buttons(int active);
 lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y);
 void update_env_plot(bool isA);
-lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h);
+lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h, bool isA);
 
 #endif
