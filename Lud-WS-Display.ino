@@ -76,6 +76,10 @@ lv_obj_t   *timeline_btn_init = nullptr;
 lv_obj_t   *timeline_btn_stop = nullptr;
 lv_obj_t   *timeline_btn_play = nullptr;
 bool        timeline_playing  = false;
+lv_obj_t          *env_chart_A = nullptr;
+lv_obj_t          *env_chart_B = nullptr;
+lv_chart_series_t *env_serie_A = nullptr;
+lv_chart_series_t *env_serie_B = nullptr;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},

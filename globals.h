@@ -271,6 +271,15 @@ extern bool         timeline_playing;
 extern lv_timer_t  *tdt;
 extern uint32_t     timeline_demo_ms;
 
+// ========================== ENVELOPE PLOTTER (VCA) ==========================
+extern lv_obj_t           *env_chart_A;
+extern lv_obj_t           *env_chart_B;
+extern lv_chart_series_t  *env_serie_A;
+extern lv_chart_series_t  *env_serie_B;
+
+void update_env_plot(bool isA);
+lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h);
+
 void tl_set_buttons(int active);
 lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y);
 

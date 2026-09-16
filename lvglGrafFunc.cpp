@@ -960,6 +960,8 @@ timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
 timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
 timeline_playing  = false;
 timeline_demo_ms  = 0;
+env_chart_A = env_chart_B = nullptr;
+env_serie_A = env_serie_B = nullptr;
 if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
@@ -1005,6 +1007,89 @@ if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
     for (int i=0; i<5; i++) btn(m, n[i], 30+i*155, 360, 120, 90, cols[i], i);
 }
 
+// ========================== ENVELOPE PLOTTER (VCA) ==========================
+#define ENV_POINTS 60
+
+lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h) {
+    lv_obj_t *chart = lv_chart_create(parent);
+    lv_obj_set_size(chart, w, h);
+    lv_obj_set_pos(chart, x, y);
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_chart_set_point_count(chart, ENV_POINTS);
+    lv_obj_set_style_bg_color(chart, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_border_width(chart, 1, 0);
+    lv_obj_set_style_border_color(chart, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_radius(chart, 4, 0);
+    lv_chart_set_div_line_count(chart, 0, 0);
+    lv_obj_clear_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(chart, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_chart_series_t *serie = lv_chart_add_series(chart,
+                                lv_color_hex(0x00FFAA), LV_CHART_AXIS_PRIMARY_Y);
+
+    // Label "ENV"
+    lv_obj_t *lbl = lv_label_create(parent);
+    lv_label_set_text(lbl, "ENV");
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(lbl, x, y - 18);
+
+    return chart;
+}
+
+void update_env_plot(bool isA) {
+    lv_obj_t          *chart = isA ? env_chart_A : env_chart_B;
+    lv_chart_series_t *serie = isA ? env_serie_A : env_serie_B;
+    if (!chart || !lv_obj_is_valid(chart) || !serie) return;
+
+    // Legge i valori correnti degli slider VCA (indici 4..7)
+    int vA = 0, vD = 0, vS = 0, vR = 0;
+    if (slider_objs[4] && lv_obj_is_valid(slider_objs[4])) vA = lv_slider_get_value(slider_objs[4]);
+    if (slider_objs[5] && lv_obj_is_valid(slider_objs[5])) vD = lv_slider_get_value(slider_objs[5]);
+    if (slider_objs[6] && lv_obj_is_valid(slider_objs[6])) vS = lv_slider_get_value(slider_objs[6]);
+    if (slider_objs[7] && lv_obj_is_valid(slider_objs[7])) vR = lv_slider_get_value(slider_objs[7]);
+
+    // Tempi normalizzati (minimo 4 per evitare divisioni per zero)
+    float tA = (vA + 4) / 259.0f;
+    float tD = (vD + 4) / 259.0f;
+    float tR = (vR + 4) / 259.0f;
+    float tS = 0.4f;                        // sustain: durata visiva fissa
+    float total = tA + tD + tS + tR;
+
+    // Livello di sustain (0..1)
+    float sLevel = vS / 255.0f;
+
+    // Genera la curva
+    for (int i = 0; i < ENV_POINTS; i++) {
+        float x     = (float)i / (ENV_POINTS - 1);
+        float t_pos = x * total;
+        float y     = 0.0f;
+
+        if (t_pos < tA) {
+            // ATTACK: 0 -> 1
+            y = (tA > 0.001f) ? (t_pos / tA) : 1.0f;
+        } else if (t_pos < tA + tD) {
+            // DECAY: 1 -> sLevel
+            float d = t_pos - tA;
+            y = 1.0f - (1.0f - sLevel) * (d / tD);
+        } else if (t_pos < tA + tD + tS) {
+            // SUSTAIN
+            y = sLevel;
+        } else {
+            // RELEASE: sLevel -> 0
+            float r = t_pos - tA - tD - tS;
+            y = sLevel * (1.0f - r / tR);
+        }
+
+        int yi = (int)(y * 100.0f);
+        if (yi < 0)   yi = 0;
+        if (yi > 100) yi = 100;
+        lv_chart_set_next_value(chart, serie, yi);
+    }
+    lv_chart_refresh(chart);
+}
+
 // ========================== PAGINE SECONDARIE ==========================
 void create_page(const char *title) {
     pendingPresetA = pendingPresetB = -1;
@@ -1026,6 +1111,8 @@ timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
 timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
 timeline_playing  = false;
 timeline_demo_ms  = 0;
+env_chart_A = env_chart_B = nullptr;
+env_serie_A = env_serie_B = nullptr;
 if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
@@ -1172,14 +1259,24 @@ else if (strncmp(title, "MOD", 3) == 0) {
         home_btn(m, -1);
     }
 	else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
-        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-        lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE) : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
-        lv_color_t passed_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_PASSED) : lv_color_hex(COLOR_SLIDER_SYNTH_B_PASSED);
-        int base = (strncmp(title, "VCF", 3) == 0) ? 0 : 4;
-        const char *labels[] = {"A", "D", "S", "R"};
-        for (int i=0; i<4; i++) slider(m, 20 + i*80, 96, labels[i], base + i, active_color, passed_color);
-        home_btn(m, -2);
+    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+    lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE) : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
+    lv_color_t passed_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_PASSED) : lv_color_hex(COLOR_SLIDER_SYNTH_B_PASSED);
+    int base = (strncmp(title, "VCF", 3) == 0) ? 0 : 4;
+    const char *labels[] = {"A", "D", "S", "R"};
+    for (int i=0; i<4; i++) slider(m, 20 + i*80, 96, labels[i], base + i, active_color, passed_color);
+
+    // Solo per VCA: plotter envelope a destra
+    if (base == 4) {
+        lv_obj_t *chart = create_env_plot(m, 620, 116, 150, 100);
+        lv_chart_series_t *serie = lv_chart_get_series_next(chart, NULL);
+        if (isA) { env_chart_A = chart; env_serie_A = serie; }
+        else     { env_chart_B = chart; env_serie_B = serie; }
+        update_env_plot(isA);
     }
+
+    home_btn(m, -2);
+}
     else {
         lv_obj_t *lb = lv_label_create(m);
         lv_label_set_text_fmt(lb, "Contenuto di %s", title);
@@ -1253,6 +1350,12 @@ else if (strncmp(title, "MOD", 3) == 0) {
         }
     } else arr[d->idx] = 0;
     last[d->idx] = cur;
+	// VCA (idx 4..7): aggiorna il plotter envelope
+if (d->idx >= 4 && d->idx <= 7) {
+    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+    update_slider_parameter(d->idx, cur);
+    update_env_plot(isA);
+}
 }
 
  void ecat_btn(lv_event_t *e) {
