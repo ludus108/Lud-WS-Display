@@ -1,7 +1,21 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
+//FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi
+/* Lud-WS-Display/
+├── Lud-WS-Display.ino
+├── globals.h
+├── preset_sd.h
+├── comunicazioni.h
+├── serial_protocol.h
+├── images.c
+├── images/
+└── src/
+    └── grafica/
+        ├── lvglGraf.h
+        ├── lvglGrafFunc.cpp
+        └── lvglPreset.cpp */
 /**
  add env plotter 2 tracce
- * LUD-WS - Display Versione 0.0.13
+ * LUD-WS - Display Versione 0.0.14
  * ============================================================
  * - aggiunto:
  
@@ -9,7 +23,6 @@
  * - Discovery MCU non bloccante, riavviabile da SET UP
  * - 6 arc/pot in Synth A/MOD (Data_Pot_1..6) con pallino rosso
  *   e label valore sotto l'arc
- 
  */
 #include <Arduino.h>
 #include <esp_display_panel.hpp>
@@ -24,7 +37,7 @@
 #include "globals.h"
 
 // ========================== DEFINIZIONI VARIABILI GLOBALI ==========================
-const char* last_version = "V.0.13";
+const char* last_version = "V.0.14";
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
 lv_obj_t *slider_objs[8] = {0};
@@ -98,7 +111,7 @@ WaveDef WAVE_DEFS[NUM_WAVES] = {
 bool sd_init();
 
 // ========================== INCLUDE HEADER ==========================
-#include "lvglGraf.h"
+#include "src/grafica/lvglGraf.h"
 #include "preset_sd.h"
 #include "comunicazioni.h"
 
@@ -122,10 +135,21 @@ void selPreset(byte chi, int idx) {
         for (int i = 0; i < MAX_timbrB; i++) tempTimbrB[i] = timbrB[idx][i];
     }
 }
-
+void reset_GT911(){
+		pinMode(18, OUTPUT);   // GT911 INT
+digitalWrite(18, LOW); // seleziona indirizzo 0x5D (o HIGH per 0x14)
+pinMode(38, OUTPUT);   // GT911 RST
+digitalWrite(38, LOW);
+delay(50);
+digitalWrite(38, HIGH);
+delay(100);
+}
 // ========================== SETUP ==========================
 void setup() {
     Serial.begin(115200);
+//	delay(1000);  
+reset_GT911();
+
     Serial1.begin(115200, SERIAL_8N1, 18, 17);
     EEPROM.begin(EEPROM_SIZE);
     load_bright();

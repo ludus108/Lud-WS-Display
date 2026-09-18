@@ -1,12 +1,14 @@
 \# 🎛️ LUD-WS – Display Controller
 
-V 0. 0. 12
+V 0. 0. 14
 
 Firmware per display master della workstation analogica ibrida LUD-WS.  
 
 Basato su \*\*LVGL\*\* con touch 800×480.
 
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
+
+FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi
 
 \- Gestione preset su SD (Synth A/B)
 
