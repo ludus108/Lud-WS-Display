@@ -33,10 +33,10 @@
 #include <EEPROM.h>
 #include <SD.h>
 
-// ========================== INCLUDE GLOBALE ==========================
+// ======== INCLUDE GLOBALE ================
 #include "globals.h"
-
-// ========================== DEFINIZIONI VARIABILI GLOBALI ==========================
+#define LWS_BAUD    1000000UL      // 1 Mbps — bus LWS
+// ============= DEFINIZIONI VARIABILI GLOBALI =======
 const char* last_version = "V.0.14";
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
@@ -158,7 +158,7 @@ void setup() {
     Serial.begin(115200);
 reset_GT911();
 
-    Serial1.begin(115200, SERIAL_8N1, 18, 17);
+    Serial1.begin(LWS_BAUD, SERIAL_8N1, 18, 17);
     EEPROM.begin(EEPROM_SIZE);
   load_all_settings();
     bool sd_ok = sd_init();

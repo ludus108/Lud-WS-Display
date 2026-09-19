@@ -251,6 +251,11 @@ static void process_frame(const LwsFrame &f) {
                     for (uint8_t i = 0; i < MAPB_SIZE; i++)
                         if (mapB[i].key == key) { timbrB[presetNumB][mapB[i].index] = val; break; }
                 }
+				// in comunicazioni.h (Display), dentro process_frame, nei due case PARAM:
+else if (target == ID_TEENSY) {
+    // opzionale: aggiorna UI locale (slider BPM, label pattern, ecc.)
+    Serial.printf("[T] key=%c val=%u\n", key, val);
+}
             }
             break;
         }
