@@ -324,6 +324,35 @@ else if (target == ID_TEENSY) {
            
         }
  break;
+         // -----------------------------------------------------------------
+        // DRUM_PATTERN: [ptn_num][name...]  (dal Teensy)
+        // -----------------------------------------------------------------
+        case CMD_DRUM_PATTERN: {
+            if (f.len >= 1) {
+                uint8_t ptn = f.data[0];
+                char name[32] = {0};
+                size_t nameLen = f.len - 1;
+                if (nameLen > 31) nameLen = 31;
+                memcpy(name, &f.data[1], nameLen);
+                name[nameLen] = '\0';
+
+                if (drum_pattern_label && lv_obj_is_valid(drum_pattern_label)) {
+                    char buf[48];
+                    // Se il nome è vuoto o uguale al default "PTN NN", mostra solo il numero
+                    char defName[16];
+                    snprintf(defName, sizeof(defName), "PTN %02u", ptn);
+
+                    if (name[0] == '\0' || strcmp(name, defName) == 0)
+                        snprintf(buf, sizeof(buf), "PTN %02u", ptn);
+                    else
+                        snprintf(buf, sizeof(buf), "PTN %02u: %s", ptn, name);
+
+                    lv_label_set_text(drum_pattern_label, buf);
+                }
+                Serial.printf("[DRUM] ptn=%u name=\"%s\"\n", ptn, name);
+            }
+            break;
+        }
     }
 }
 

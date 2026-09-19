@@ -964,6 +964,7 @@ void create_home() {
 	keyboard_obj = nullptr;
 for (int i = 0; i < KB_WHITE_KEYS; i++) kb_white[i] = nullptr;
 for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
+drum_pattern_label = nullptr;
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -1255,8 +1256,12 @@ void create_page(const char *title) {
     env_chart_A = env_chart_B = nullptr;
     env_serie_A = env_serie_B = nullptr;
     env_serie_tgt_A = env_serie_tgt_B = nullptr;
+	drum_pattern_label = nullptr;
+	for (int i = 0; i < KB_WHITE_KEYS; i++) kb_white[i] = nullptr;
+for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
+	
+	
     if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
-
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
     lv_obj_set_style_radius(m, 0, 0);
@@ -1516,6 +1521,23 @@ void create_page(const char *title) {
 
     home_btn(m, -1);
 }
+    else if (strcmp(title, "DRUM") == 0) {
+        // ---- Label pattern drum (aggiornata via LWS dal Teensy) ----
+        drum_pattern_label = lv_label_create(m);
+        lv_label_set_text(drum_pattern_label, "PTN --: --");
+        lv_obj_set_style_text_color(drum_pattern_label, lv_color_hex(0x00FFFF), 0);
+        lv_obj_set_style_text_font(drum_pattern_label, &lv_font_montserrat_32, 0);
+        lv_obj_set_pos(drum_pattern_label, 50, 80);
+
+        // (opzionale) etichetta statica sopra
+        lv_obj_t *lbl_h = lv_label_create(m);
+        lv_label_set_text(lbl_h, "Drum Pattern");
+        lv_obj_set_style_text_color(lbl_h, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_set_style_text_font(lbl_h, &lv_font_montserrat_18, 0);
+        lv_obj_set_pos(lbl_h, 50, 55);
+
+        home_btn(m, -1);
+    }
     else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
     bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
     lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE) : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);

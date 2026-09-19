@@ -41,6 +41,7 @@ static const uint8_t LWS_END2 = '!';
 #define CMD_MIDI_CC     'c'   // [cc,value]                   MIDI Control Change
 #define CMD_MIDI_NOTE   'n'   // [onoff,pitch,velocity]       MIDI Note On/Off
 #define CMD_MIDI_BEND   'b'   // [bend_i32_le]                MIDI Pitch Bend
+#define CMD_DRUM_PATTERN 'W'   // [ptn_num][name...]  Teensy -> Display
 
 // ---------------- CRC-8/ATM (poly 0x07, init 0x00) ----------------
 inline uint8_t lws_crc8_update(uint8_t crc, uint8_t b) {

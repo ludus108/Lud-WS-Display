@@ -181,6 +181,8 @@ extern const lv_img_dsc_t img_slider_oriz_knob;
 extern const lv_img_dsc_t img_arc_bg;
 extern const lv_img_dsc_t img_arc_indic;
 extern const lv_img_dsc_t home;
+// ========================== DRUM PATTERN LABEL ==========================
+extern lv_obj_t *drum_pattern_label;
 
 // ========================== PROTOTIPI FUNZIONI ==========================
 void selPreset(byte chi, int idx);

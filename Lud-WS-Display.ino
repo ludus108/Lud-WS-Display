@@ -103,6 +103,7 @@ lv_obj_t *kb_black[KB_BLACK_KEYS] = {0};
 int       kb_white_note[KB_WHITE_KEYS];
 int       kb_black_note[KB_BLACK_KEYS];
 lv_obj_t *keyboard_obj = nullptr;
+lv_obj_t *drum_pattern_label = nullptr;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},
@@ -224,7 +225,8 @@ reset_GT911();
     } else {
         log_add("SD: ERRORE", lv_color_hex(0xFF0000));
     }
-
+// Chiedi al Teensy il pattern drum corrente
+send_param_update(ID_TEENSY, 'Q', 0);
     // Boot messages
     log_add("LUD WS avviato", lv_color_hex(0x00FF00));
     char b[16];
