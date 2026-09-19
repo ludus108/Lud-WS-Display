@@ -40,6 +40,8 @@ void update_shape_slider_color(int synth_id, bool active);
 void grid_btn_click(lv_event_t *e);
 void earc_changed(lv_event_t *e);
 
+lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h);
+void      update_keyboard_colors();
 // ========================== ARC / POT ==========================
 void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const char *pname);
 lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y);

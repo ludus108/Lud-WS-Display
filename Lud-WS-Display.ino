@@ -94,6 +94,15 @@ lv_chart_series_t *env_serie_A = nullptr;
 lv_chart_series_t *env_serie_B = nullptr;
 lv_chart_series_t *env_serie_tgt_A = nullptr;
 lv_chart_series_t *env_serie_tgt_B = nullptr;
+int midi_channel_A = 1;
+int midi_channel_B = 2;
+int midi_channel_D = 3;
+int midi_split = 0;
+lv_obj_t *kb_white[KB_WHITE_KEYS] = {0};
+lv_obj_t *kb_black[KB_BLACK_KEYS] = {0};
+int       kb_white_note[KB_WHITE_KEYS];
+int       kb_black_note[KB_BLACK_KEYS];
+lv_obj_t *keyboard_obj = nullptr;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},
@@ -147,12 +156,11 @@ delay(100);
 // ========================== SETUP ==========================
 void setup() {
     Serial.begin(115200);
-//	delay(1000);  
 reset_GT911();
 
     Serial1.begin(115200, SERIAL_8N1, 18, 17);
     EEPROM.begin(EEPROM_SIZE);
-    load_bright();
+  load_all_settings();
     bool sd_ok = sd_init();
 
     randomSeed(analogRead(0));

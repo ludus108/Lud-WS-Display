@@ -18,7 +18,7 @@ using namespace esp_panel::board;
 #define SD_MOSI        11
 #define SD_CLK         12
 #define SD_MISO        13
-#define EEPROM_SIZE     4
+#define EEPROM_SIZE     5
 #define EEPROM_ADDR     0
 #define LOG_TIMEOUT  2000
 #define TOAST_DUR    2000
@@ -202,8 +202,6 @@ void toast_show(const char *msg, lv_color_t c, uint32_t dur = TOAST_DUR);
 void log_add(const char *msg, lv_color_t c);
 void log_hide();
 void log_show();
-void save_bright();
-void load_bright();
 void set_bright(uint8_t v);
 void create_home();
 void create_page(const char *title);
@@ -270,15 +268,30 @@ extern lv_obj_t    *timeline_btn_play;
 extern bool         timeline_playing;
 extern lv_timer_t  *tdt;
 extern uint32_t     timeline_demo_ms;
-
-// ========================== ENVELOPE PLOTTER (VCA) ==========================
+// ========================== MIDI CONFIG ==========================
+extern int midi_channel_A;   // 1..16
+extern int midi_channel_B;   // 1..16
+extern int midi_channel_D;   // 1..16  (DRUM)
+extern int midi_split;   // 0..31  (0 = F3, indice nota piu' bassa)
+// ========================== EEPROM SETTINGS ==========================
+void load_all_settings();
+void save_all_settings();
+// ====================== ENVELOPE PLOTTER (VCA) =======================
 extern lv_obj_t           *env_chart_A;
 extern lv_obj_t           *env_chart_B;
 extern lv_chart_series_t  *env_serie_A;
 extern lv_chart_series_t  *env_serie_B;
 extern lv_chart_series_t  *env_serie_tgt_A;
 extern lv_chart_series_t  *env_serie_tgt_B;
+// ========================== KEYBOARD WIDGET ==========================
+#define KB_WHITE_KEYS  19
+#define KB_BLACK_KEYS  13
 
+extern lv_obj_t *kb_white[KB_WHITE_KEYS];
+extern lv_obj_t *kb_black[KB_BLACK_KEYS];
+extern int       kb_white_note[KB_WHITE_KEYS];
+extern int       kb_black_note[KB_BLACK_KEYS];
+extern lv_obj_t *keyboard_obj;
 void update_env_plot(bool isA);
 lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h);
 

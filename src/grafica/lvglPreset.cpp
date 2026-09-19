@@ -27,11 +27,11 @@ void initPresetNamesB() {
 void update_preset_labels() {
     char buf[64];
     if (preset_label_A && lv_obj_is_valid(preset_label_A)) {
-        snprintf(buf, sizeof(buf), "P%d %s", presetNumA, presetNamesA[presetNumA]);
+        snprintf(buf, sizeof(buf), "Pn%d %s", presetNumA+1, presetNamesA[presetNumA]);
         lv_label_set_text(preset_label_A, buf);
     }
     if (preset_label_B && lv_obj_is_valid(preset_label_B)) {
-        snprintf(buf, sizeof(buf), "P%d %s", presetNumB, presetNamesB[presetNumB]);
+        snprintf(buf, sizeof(buf), "Pn%d %s", presetNumB+1, presetNamesB[presetNumB]);
         lv_label_set_text(preset_label_B, buf);
     }
 }
@@ -683,4 +683,38 @@ void init_sd() {
     initPresetNamesB();
     saveAllToSD();
     log_add("SD inizializzata con preset di default", lv_color_hex(0x00FF00));
+}
+
+// ========================== EEPROM SETTINGS ==========================
+// Layout EEPROM (4 byte):
+//   [0] bright          0..100
+//   [1] midi_channel_A  1..16
+//   [2] midi_channel_B  1..16
+//   [3] midi_channel_D  1..16
+void load_all_settings() {
+    // Luminosità
+    uint8_t v = EEPROM.read(0);
+    g.bright = (v <= 100) ? v : 50;      // default 50 se EEPROM vergine
+    set_bright(g.bright);
+
+    // Canali MIDI (0xFF se EEPROM vergine -> fuori range -> default)
+    uint8_t a = EEPROM.read(1);
+    uint8_t b = EEPROM.read(2);
+    uint8_t d = EEPROM.read(3);
+	uint8_t s = EEPROM.read(4);
+    midi_channel_A = (a >= 1 && a <= 16) ? a : 1;
+    midi_channel_B = (b >= 1 && b <= 16) ? b : 2;
+    midi_channel_D = (d >= 1 && d <= 16) ? d : 3;
+	 midi_split = (s <= 31) ? s : 14; 
+}
+
+void save_all_settings() {
+    EEPROM.write(0, g.bright);
+    EEPROM.write(1, (uint8_t)midi_channel_A);
+    EEPROM.write(2, (uint8_t)midi_channel_B);
+    EEPROM.write(3, (uint8_t)midi_channel_D);
+	EEPROM.write(4, (uint8_t)midi_split);
+    EEPROM.commit();
+
+    log_add("SetUp salvato in EEPROM", lv_color_hex(0x00FF00));
 }

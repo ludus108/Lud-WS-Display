@@ -278,7 +278,7 @@ void grid_btn_click(lv_event_t *e) {
     }
     if (synth_id == SRC_A) g.wa = global_idx;
     else g.wb = global_idx;
-    wave_shape(global_idx, synth_id);
+ //   wave_shape(global_idx, synth_id);
     update_plotter_by_wave(synth_id);
 }
 
@@ -886,11 +886,11 @@ void reset_arrows() {
     toast_show("Freccine ripristinate!", lv_color_hex(0x66AAFF), TOAST_DUR);
 }
 
-void wave_shape(int id, int src) {
+/* void wave_shape(int id, int src) {
     const char *sn = (src == SRC_A) ? "Synth A" : "Synth B";
     char b[60]; snprintf(b, 60, "[%s] Selezionato: %s", sn, WAVE_DEFS[id].name);
     log_add(b, lv_color_hex(0x66AAFF));
-}
+} */
 
 // ========================== LOG WIDGET ==========================
 void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h) {
@@ -925,8 +925,8 @@ void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h) {
 static lv_obj_t* create_preset_label(lv_obj_t *parent, lv_obj_t *title_lbl, bool isA) {
     lv_obj_t *info = lv_label_create(parent);
     char buf[64];
-    if (isA) snprintf(buf, sizeof(buf), "P%d %s", presetNumA, presetNamesA[presetNumA]);
-    else     snprintf(buf, sizeof(buf), "P%d %s", presetNumB, presetNamesB[presetNumB]);
+    if (isA) snprintf(buf, sizeof(buf), "Pn%d %s", presetNumA+1, presetNamesA[presetNumA]);
+    else     snprintf(buf, sizeof(buf), "Pn%d %s", presetNumB+1, presetNamesB[presetNumB]);
     lv_label_set_text(info, buf);
     lv_obj_set_style_text_color(info, lv_color_hex(0xFFFFFF), 0);   // BIANCO
     lv_obj_set_style_text_font(info, &lv_font_montserrat_24, 0);    // font grande
@@ -961,6 +961,9 @@ void create_home() {
     env_chart_A = env_chart_B = nullptr;
     env_serie_A = env_serie_B = nullptr;
     env_serie_tgt_A = env_serie_tgt_B = nullptr;
+	keyboard_obj = nullptr;
+for (int i = 0; i < KB_WHITE_KEYS; i++) kb_white[i] = nullptr;
+for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
@@ -1110,7 +1113,125 @@ void update_env_plot(bool isA) {
 
     lv_chart_refresh(chart);
 }
+static void midi_split_cb(lv_event_t *e) {
+    lv_obj_t *dd = lv_event_get_target(e);
+    midi_split = lv_dropdown_get_selected(dd);
+    update_keyboard_colors();    // <-- ridisegna la tastiera
+   /*  char buf[48];
+    snprintf(buf, sizeof(buf), "SPLIT = %d", midi_split);
+    log_add(buf, lv_color_hex(0x66AAFF)); */
+}
+// ========================== MIDI CONFIG EVENTS ==========================
+static void midi_ch_a_cb(lv_event_t *e) {
+    lv_obj_t *dd = lv_event_get_target(e);
+    midi_channel_A = lv_dropdown_get_selected(dd) + 1;
+    char buf[40];
+    snprintf(buf, sizeof(buf), "SynthA MIDI CH = %d", midi_channel_A);
+    log_add(buf, lv_color_hex(0x66AAFF));
+}
 
+static void midi_ch_b_cb(lv_event_t *e) {
+    lv_obj_t *dd = lv_event_get_target(e);
+    midi_channel_B = lv_dropdown_get_selected(dd) + 1;
+    char buf[40];
+    snprintf(buf, sizeof(buf), "SynthB MIDI CH = %d", midi_channel_B);
+    log_add(buf, lv_color_hex(0x66AAFF));
+}
+static void midi_ch_d_cb(lv_event_t *e) {
+    lv_obj_t *dd = lv_event_get_target(e);
+    midi_channel_D = lv_dropdown_get_selected(dd) + 1;
+    char buf[40];
+    snprintf(buf, sizeof(buf), "DRUM MIDI CH = %d", midi_channel_D);
+    log_add(buf, lv_color_hex(0x66AAFF));
+}
+// ========================== KEYBOARD WIDGET ==========================
+// Tastiera 32 tasti (F3..C6). Layout pianistico:
+//   19 tasti bianchi, 13 tasti neri sovrapposti.
+// Colori:
+//   indice <= midi_split  ->  giallo leggero
+//   indice >  midi_split  ->  azzurro leggero
+lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h) {
+    // Note index (0..31):
+    //   0=F3, 1=F#3, 2=G3, ... 31=C6
+    static const int white_notes[KB_WHITE_KEYS] = {
+        0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26, 28, 30, 31
+    };
+    static const int black_notes[KB_BLACK_KEYS]    = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25, 27, 29};
+    static const int black_after_white[KB_BLACK_KEYS] = {0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14, 15, 16};
+
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_set_size(cont, w, h);
+    lv_obj_set_pos(cont, x, y);
+    lv_obj_set_style_bg_color(cont, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_border_width(cont, 1, 0);
+    lv_obj_set_style_border_color(cont, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_radius(cont, 2, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_CLICKABLE);
+
+    const int bk_w = 11;
+    const int bk_h = (h * 60) / 100;
+
+    // --- Tasti bianchi ---
+    for (int i = 0; i < KB_WHITE_KEYS; i++) {
+        int x0 = (i * w) / KB_WHITE_KEYS;
+        int x1 = ((i + 1) * w) / KB_WHITE_KEYS;
+        lv_obj_t *k = lv_obj_create(cont);
+        lv_obj_set_size(k, x1 - x0, h);
+        lv_obj_set_pos(k, x0, 0);
+        lv_obj_set_style_radius(k, 0, 0);
+        lv_obj_set_style_border_width(k, 0, 0);
+        lv_obj_set_style_pad_all(k, 0, 0);
+        lv_obj_clear_flag(k, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(k, LV_OBJ_FLAG_CLICKABLE);
+        kb_white[i]      = k;
+        kb_white_note[i] = white_notes[i];
+    }
+
+    // --- Tasti neri sovrapposti ---
+    for (int i = 0; i < KB_BLACK_KEYS; i++) {
+        int wi       = black_after_white[i];
+        int boundary = ((wi + 1) * w) / KB_WHITE_KEYS;
+        int bx       = boundary - bk_w / 2;
+        lv_obj_t *k = lv_obj_create(cont);
+        lv_obj_set_size(k, bk_w, bk_h);
+        lv_obj_set_pos(k, bx, 0);
+        lv_obj_set_style_radius(k, 0, 0);
+        lv_obj_set_style_border_width(k, 0, 0);
+        lv_obj_set_style_pad_all(k, 0, 0);
+        lv_obj_clear_flag(k, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(k, LV_OBJ_FLAG_CLICKABLE);
+        kb_black[i]      = k;
+        kb_black_note[i] = black_notes[i];
+    }
+
+    keyboard_obj = cont;
+    update_keyboard_colors();
+    return cont;
+}
+
+void update_keyboard_colors() {
+    // Tasti bianchi: giallo tenue / azzurro tenue
+    lv_color_t w_yellow = lv_color_hex(0xFFFFAA);
+    lv_color_t w_blue   = lv_color_hex(0xAADDFF);
+    // Tasti neri: varianti scure per mantenere leggibilità
+    lv_color_t b_yellow = lv_color_hex(0x886600);
+    lv_color_t b_blue   = lv_color_hex(0x224466);
+
+    for (int i = 0; i < KB_WHITE_KEYS; i++) {
+        if (!kb_white[i] || !lv_obj_is_valid(kb_white[i])) continue;
+        lv_color_t c = (kb_white_note[i] <= midi_split) ? w_yellow : w_blue;
+        lv_obj_set_style_bg_color(kb_white[i], c, 0);
+        lv_obj_set_style_bg_opa(kb_white[i], LV_OPA_COVER, 0);
+    }
+    for (int i = 0; i < KB_BLACK_KEYS; i++) {
+        if (!kb_black[i] || !lv_obj_is_valid(kb_black[i])) continue;
+        lv_color_t c = (kb_black_note[i] <= midi_split) ? b_yellow : b_blue;
+        lv_obj_set_style_bg_color(kb_black[i], c, 0);
+        lv_obj_set_style_bg_opa(kb_black[i], LV_OPA_COVER, 0);
+    }
+}
 // ========================== PAGINE SECONDARIE ==========================
 void create_page(const char *title) {
     pendingPresetA = pendingPresetB = -1;
@@ -1254,8 +1375,147 @@ void create_page(const char *title) {
         lv_obj_center(lbl_disc);
         lv_obj_add_event_cb(btn_disc, disc_btn_click, LV_EVENT_CLICKED, NULL);
 
+        // --- Pulsante "Salva SetUp" ---
+        lv_obj_t *btn_save = lv_btn_create(m);
+        lv_obj_set_size(btn_save, 200, 70);
+        lv_obj_set_pos(btn_save, 480, 80);
+        lv_obj_set_style_bg_color(btn_save, lv_color_hex(0x1A6B4A), 0);
+        lv_obj_set_style_bg_color(btn_save, lv_color_hex(0x0F4A2E), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(btn_save, 10, 0);
+        lv_obj_set_style_border_width(btn_save, 2, 0);
+        lv_obj_set_style_border_color(btn_save, lv_color_hex(0x00FF88), 0);
+        lv_obj_t *lbl_save = lv_label_create(btn_save);
+        lv_label_set_text(lbl_save, "Salva SetUp");
+        lv_obj_set_style_text_color(lbl_save, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(lbl_save, &lv_font_montserrat_20, 0);
+        lv_obj_center(lbl_save);
+        lv_obj_add_event_cb(btn_save, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)21);
+
+        // --- Pulsante "MIDI" (stessa posizione dei bottoni submenu synth) ---
+        lv_obj_t *btn_midi = lv_btn_create(m);
+        lv_obj_set_size(btn_midi, 120, 90);
+        lv_obj_set_pos(btn_midi, 30, 360);
+        lv_obj_set_style_bg_color(btn_midi, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_bg_color(btn_midi, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(btn_midi, 8, 0);
+        lv_obj_set_style_border_width(btn_midi, 3, 0);
+        lv_obj_set_style_border_color(btn_midi, lv_color_hex(0x44FF88), 0);
+        lv_obj_t *lbl_midi = lv_label_create(btn_midi);
+        lv_label_set_text(lbl_midi, "MIDI");
+        lv_obj_set_style_text_color(lbl_midi, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(lbl_midi, &lv_font_montserrat_18, 0);
+        lv_obj_center(lbl_midi);
+        lv_obj_add_event_cb(btn_midi, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)20);
+
         home_btn(m, -1);
     }
+	
+	  else if (strcmp(title, "MIDI") == 0) {
+    // ============ RIGA SynthA: [SynthA] [CH] [dd] [SPLIT] [dd] ============
+    lv_obj_t *lbl_a = lv_label_create(m);
+    lv_label_set_text(lbl_a, "SynthA");
+    lv_obj_set_style_text_color(lbl_a, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl_a, &lv_font_montserrat_24, 0);
+    lv_obj_set_pos(lbl_a, 40, 105);
+        // Tastiera 32 tasti: x allineato al dropdown SPLIT, y tra top e dropdown
+        create_keyboard(m, 380, 5, 360, 85);
+    // CH (colonna 1)
+    lv_obj_t *lbl_ch_a = lv_label_create(m);
+    lv_label_set_text(lbl_ch_a, "CH");
+    lv_obj_set_style_text_color(lbl_ch_a, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(lbl_ch_a, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(lbl_ch_a, 160, 112);
+
+    lv_obj_t *dd_a = lv_dropdown_create(m);
+    lv_obj_set_size(dd_a, 80, 45);
+    lv_obj_set_pos(dd_a, 200, 100);
+    lv_obj_set_style_bg_color(dd_a, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_border_width(dd_a, 2, 0);
+    lv_obj_set_style_border_color(dd_a, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_color(dd_a, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dd_a, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_pad_left(dd_a, 8, 0);
+    lv_dropdown_set_options(dd_a, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16");
+    lv_dropdown_set_selected(dd_a, (midi_channel_A >= 1 && midi_channel_A <= 16) ? midi_channel_A - 1 : 0);
+    lv_obj_add_event_cb(dd_a, midi_ch_a_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // SPLIT (colonna 2)
+    lv_obj_t *lbl_sp_a = lv_label_create(m);
+    lv_label_set_text(lbl_sp_a, "SPLIT");
+    lv_obj_set_style_text_color(lbl_sp_a, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(lbl_sp_a, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(lbl_sp_a, 310, 112);
+
+    lv_obj_t *dd_sp_a = lv_dropdown_create(m);
+    lv_obj_set_size(dd_sp_a, 100, 45);
+    lv_obj_set_pos(dd_sp_a, 380, 100);
+    lv_obj_set_style_bg_color(dd_sp_a, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_border_width(dd_sp_a, 2, 0);
+    lv_obj_set_style_border_color(dd_sp_a, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_color(dd_sp_a, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dd_sp_a, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_pad_left(dd_sp_a, 8, 0);
+    lv_dropdown_set_options(dd_sp_a,
+        "F3\nF#3\nG3\nG#3\nA3\nA#3\nB3\n"
+        "C4\nC#4\nD4\nD#4\nE4\nF4\nF#4\nG4\nG#4\nA4\nA#4\nB4\n"
+        "C5\nC#5\nD5\nD#5\nE5\nF5\nF#5\nG5\nG#5\nA5\nA#5\nB5\nC6");
+    lv_dropdown_set_selected(dd_sp_a, (midi_split <= 31) ? midi_split : 0);
+    lv_obj_add_event_cb(dd_sp_a, midi_split_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // ============ RIGA SynthB ============
+    lv_obj_t *lbl_b = lv_label_create(m);
+    lv_label_set_text(lbl_b, "SynthB");
+    lv_obj_set_style_text_color(lbl_b, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl_b, &lv_font_montserrat_24, 0);
+    lv_obj_set_pos(lbl_b, 40, 205);
+
+    lv_obj_t *lbl_ch_b = lv_label_create(m);
+    lv_label_set_text(lbl_ch_b, "CH");
+    lv_obj_set_style_text_color(lbl_ch_b, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(lbl_ch_b, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(lbl_ch_b, 160, 212);
+
+    lv_obj_t *dd_b = lv_dropdown_create(m);
+    lv_obj_set_size(dd_b, 80, 45);
+    lv_obj_set_pos(dd_b, 200, 200);
+    lv_obj_set_style_bg_color(dd_b, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_border_width(dd_b, 2, 0);
+    lv_obj_set_style_border_color(dd_b, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_color(dd_b, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dd_b, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_pad_left(dd_b, 8, 0);
+    lv_dropdown_set_options(dd_b, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16");
+    lv_dropdown_set_selected(dd_b, (midi_channel_B >= 1 && midi_channel_B <= 16) ? midi_channel_B - 1 : 1);
+    lv_obj_add_event_cb(dd_b, midi_ch_b_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // ============ RIGA DRUM ============
+    lv_obj_t *lbl_d = lv_label_create(m);
+    lv_label_set_text(lbl_d, "DRUM");
+    lv_obj_set_style_text_color(lbl_d, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl_d, &lv_font_montserrat_24, 0);
+    lv_obj_set_pos(lbl_d, 40, 305);
+
+    lv_obj_t *lbl_ch_d = lv_label_create(m);
+    lv_label_set_text(lbl_ch_d, "CH");
+    lv_obj_set_style_text_color(lbl_ch_d, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_font(lbl_ch_d, &lv_font_montserrat_18, 0);
+    lv_obj_set_pos(lbl_ch_d, 160, 312);
+
+    lv_obj_t *dd_d = lv_dropdown_create(m);
+    lv_obj_set_size(dd_d, 80, 45);
+    lv_obj_set_pos(dd_d, 200, 300);
+    lv_obj_set_style_bg_color(dd_d, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_border_width(dd_d, 2, 0);
+    lv_obj_set_style_border_color(dd_d, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_color(dd_d, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dd_d, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_pad_left(dd_d, 8, 0);
+    lv_dropdown_set_options(dd_d, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16");
+    lv_dropdown_set_selected(dd_d, (midi_channel_D >= 1 && midi_channel_D <= 16) ? midi_channel_D - 1 : 2);
+    lv_obj_add_event_cb(dd_d, midi_ch_d_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    home_btn(m, -1);
+}
     else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
     bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
     lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE) : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
@@ -1304,6 +1564,17 @@ void eb(lv_event_t *e) {
         } else snprintf(title, 20, "%s", sub[id-10]);
         log_add(title, lv_color_hex(0xFFFFFF));
         lvgl_port_lock(-1); create_page(title); lvgl_port_unlock();
+        return;
+    }
+	    if (id == 21) {
+        save_all_settings();
+        return;
+    }
+	    if (id == 20) {
+        log_add("Apro: MIDI", lv_color_hex(0xFFFFFF));
+        lvgl_port_lock(-1);
+        create_page("MIDI");
+        lvgl_port_unlock();
         return;
     }
     if (id >= 0 && id < 5) {
@@ -1453,6 +1724,6 @@ void elist(lv_event_t *e) {
             lv_label_set_text(label, buf);
         }
     }
-    wave_shape(global_idx, id);
+  //  wave_shape(global_idx, id);
     update_plotter_by_wave(id);
 }
