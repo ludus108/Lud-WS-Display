@@ -104,6 +104,8 @@ int       kb_white_note[KB_WHITE_KEYS];
 int       kb_black_note[KB_BLACK_KEYS];
 lv_obj_t *keyboard_obj = nullptr;
 lv_obj_t *drum_pattern_label = nullptr;
+volatile bool    preset_ack_received = false;
+volatile uint8_t preset_ack_status   = 0;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},
@@ -124,6 +126,7 @@ bool sd_init();
 #include "src/grafica/lvglGraf.h"
 #include "preset_sd.h"
 #include "comunicazioni.h"
+#include "preset_transfer.h"
 
 // ========================== SD CARD ==========================
 bool sd_init() {

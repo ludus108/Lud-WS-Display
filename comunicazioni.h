@@ -324,6 +324,17 @@ else if (target == ID_TEENSY) {
            
         }
  break;
+         case CMD_PRESET_ACK: {
+            if (f.len >= 3) {
+                uint8_t voice  = f.data[1];
+                uint8_t status = f.data[2];
+                preset_ack_received = true;
+                preset_ack_status   = status;
+                Serial.printf("[PRESET] ACK from %c voice=%u status=%u\n",
+                              (char)f.sender, voice, status);
+            }
+            break;
+        }
          // -----------------------------------------------------------------
         // DRUM_PATTERN: [ptn_num][name...]  (dal Teensy)
         // -----------------------------------------------------------------
@@ -520,5 +531,16 @@ void discover_all_mcu_poll() {
             return;
     }
 }
+// =========================================================================
+// PRESET TRANSFER — API pubblica
+// =========================================================================
+// Richiede: SD montata, Serial1 attiva.
+// Ritorna true se ACK OK, false se timeout/errore.
+
+bool sendPresetToVoice(char target, uint8_t voice, uint8_t presetId);
+
+// Variabili di stato (definite nel .ino)
+extern volatile bool    preset_ack_received;
+extern volatile uint8_t preset_ack_status;
 
 #endif

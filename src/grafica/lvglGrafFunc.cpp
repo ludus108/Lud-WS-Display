@@ -1521,7 +1521,7 @@ for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
 
     home_btn(m, -1);
 }
-    else if (strcmp(title, "DRUM") == 0) {
+      else if (strcmp(title, "DRUM") == 0) {
         // ---- Label pattern drum (aggiornata via LWS dal Teensy) ----
         drum_pattern_label = lv_label_create(m);
         lv_label_set_text(drum_pattern_label, "PTN --: --");

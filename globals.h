@@ -57,9 +57,7 @@ extern struct WaveDef WAVE_DEFS[NUM_WAVES];
 #define MAX_ARCS    6    // MOD Synth A: P1..P6
 
 // ========================== PRESET (INDIPENDENTI) ==========================
-#define MAX_timbrA 23
-#define MAX_timbrB 26
-#define MAX_preset 16
+
 
 enum paramA {
   wave_mode_A, wave_A, shape_A, shape_lev_A, shape_rate_A, lfo_pitch_lev_A,
@@ -136,15 +134,12 @@ extern uint8_t sliderColorDepth;
 // viene ricreato ogni volta che la pagina che lo ospita viene ricostruita.
 extern lv_obj_t *pot_container;
 // ========================== PRESET ARRAY ==========================
-extern int presetNumA, presetNumB;
-extern int timbrA[MAX_preset][MAX_timbrA];
-extern int timbrB[MAX_preset][MAX_timbrB];
-extern int tempTimbrA[MAX_timbrA];
-extern int tempTimbrB[MAX_timbrB];
+#include "preset_sd.h"    // porta MAX_PRESET, PRESET_NAME_LEN
 
-// ========================== NOMI PRESET ==========================
-extern char presetNamesA[MAX_preset][MAX_timbrA];
-extern char presetNamesB[MAX_preset][MAX_timbrB];
+// Indici correnti (0..29)
+extern int presetNumA;
+extern int presetNumB;
+
 
 // ========================== VARIABILI DROPDOWN E RENAME ==========================
 extern int preset_visible_count;
