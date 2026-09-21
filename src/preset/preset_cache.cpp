@@ -1,5 +1,5 @@
 #include "preset_cache.h"
-#include "serial_protocol.h"   // per lws_crc8
+#include "../../serial_protocol.h"   // per lws_crc8
 
 // ========================== DEFINIZIONI ==========================
 PresetCache cacheA[CACHE_VOCI_A];

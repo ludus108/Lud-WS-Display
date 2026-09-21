@@ -3,7 +3,7 @@
 
 #include <SD.h>
 #include <Arduino.h>
-#include "globals.h"
+#include "../../globals.h"
 
 // =========================================================================
 // preset_sd.h — Gestione preset su SD (formato binario K-V)

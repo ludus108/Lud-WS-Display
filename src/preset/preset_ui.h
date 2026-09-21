@@ -2,7 +2,7 @@
 #define PRESET_UI_H
 
 #include "preset_cache.h"
-#include "comunicazioni.h"   // send_param_voce, send_param_i32_voce, targetForVoice
+#include "../../comunicazioni.h"   // send_param_voce, send_param_i32_voce, targetForVoice
 
 // =========================================================================
 // preset_ui.h — Helper per l'UI: aggiorna cache + invia LWS
