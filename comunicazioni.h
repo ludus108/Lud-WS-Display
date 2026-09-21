@@ -103,7 +103,12 @@ static const char MCU_IDS[MAX_MCU] = {
 };
 
 static LwsParser lwsDisplayParser;
-
+static inline char targetForVoice(uint8_t voice) {
+    if (voice == 0)                return 'a';
+    if (voice == 1 || voice == 2)  return 'b';
+    if (voice == 3 || voice == 4)  return 'c';
+    return 'a';
+}
 // ========================== SEQ + PENDING ACK ==========================
 static uint8_t g_tx_seq = 0;
 static inline uint8_t next_seq() { return g_tx_seq++; }
@@ -180,6 +185,36 @@ static void send_param_reliable(char target, char param_key, uint8_t value) {
     }
 
     lws_send_frame(Serial1, ID_DISPLAY, seq, CMD_PARAM_REL, p, 3);
+}
+
+// In comunicazioni.h, dopo send_param_reliable esistente:
+
+// CMD_PARAM_VOCE: [target][voice][key][value]
+static void send_param_voce(char target, uint8_t voice,
+                            char key, uint8_t value) {
+    uint8_t p[4] = { (uint8_t)target, voice, (uint8_t)key, value };
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(),
+                   CMD_PARAM_VOCE, p, 4);
+}
+
+// CMD_PARAM_I32_V: [target][voice][key][i32_le]
+static void send_param_i32_voce(char target, uint8_t voice,
+                                char key, int32_t value) {
+    uint8_t p[7];
+    p[0] = (uint8_t)target;
+    p[1] = voice;
+    p[2] = (uint8_t)key;
+    lws_pack_i32_le(value, &p[3]);
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(),
+                   CMD_PARAM_I32_V, p, 7);
+}
+
+// CMD_MIDI_NOTE_V: [target][voice][onoff][pitch][vel]
+static void send_midi_note_v(char target, uint8_t voice,
+                             uint8_t onoff, uint8_t pitch, uint8_t vel) {
+    uint8_t p[5] = { (uint8_t)target, voice, onoff, pitch, vel };
+    lws_send_frame(Serial1, ID_DISPLAY, next_seq(),
+                   CMD_MIDI_NOTE_V, p, 5);
 }
 
 static void send_error(char target, const char *error_msg) {

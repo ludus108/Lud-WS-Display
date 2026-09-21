@@ -126,7 +126,10 @@ bool sd_init();
 #include "src/grafica/lvglGraf.h"
 #include "preset_sd.h"
 #include "comunicazioni.h"
-#include "preset_transfer.h"
+#include "preset_sd.h"           // (già dentro globals.h, se hai fatto la patch)
+#include "preset_cache.h"
+#include "preset_transfer.h"     // contiene sendBlobToVoice, loadPresetToVoice, ecc.
+#include "preset_ui.h"
 
 // ========================== SD CARD ==========================
 bool sd_init() {
@@ -213,18 +216,16 @@ reset_GT911();
     lvgl_port_unlock();
 
     // Log + caricamento preset da SD
-    if (sd_ok) {
+       if (sd_ok) {
         log_add("SD: OK", lv_color_hex(0x00FF00));
-        if (!loadAllFromSD()) {
-            log_add("Preset non trovati, creazione default...", lv_color_hex(0xFFAA00));
-            initPresetValues();
-            saveAllToSD();
-            log_add("Preset default creati e salvati", lv_color_hex(0x00FF00));
-        } else {
-            log_add("Preset caricati da SD", lv_color_hex(0x00FF00));
-        }
-        update_preset_dropdown_options();
-        update_all_targets();
+
+        // Inizializza struttura cartelle + nomi preset (30 per A e B)
+        init_sd();
+
+        // Cache locale vuota all'avvio
+        presetCacheClearAll();
+
+        log_add("Preset pronti", lv_color_hex(0x00FF00));
     } else {
         log_add("SD: ERRORE", lv_color_hex(0xFF0000));
     }
