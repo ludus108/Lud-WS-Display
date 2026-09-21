@@ -42,6 +42,18 @@ static const uint8_t LWS_END2 = '!';
 #define CMD_MIDI_NOTE   'n'   // [onoff,pitch,velocity]       MIDI Note On/Off
 #define CMD_MIDI_BEND   'b'   // [bend_i32_le]                MIDI Pitch Bend
 #define CMD_DRUM_PATTERN 'W'   // [ptn_num][name...]  Teensy -> Display
+// =========================================================================
+// CMD ESTESI per SynthA (voci)
+// =========================================================================
+// Parametri per-voce
+#define CMD_PARAM_VOCE   'V'   // [target][voice][key][value]         (4B)
+#define CMD_PARAM_I32    'I'   // [target][key][i32_le]               (6B)
+#define CMD_PARAM_I32_V  'J'   // [target][voice][key][i32_le]        (7B)
+
+// MIDI estesi con voice E target (per la cascata)
+#define CMD_MIDI_NOTE_V  'N'   // [target][voice][onoff][pitch][vel]  (5B)
+#define CMD_MIDI_BEND_V  'M'   // [target][voice][bend_i32_le]        (6B)
+#define CMD_MIDI_CC_V    'K'   // [target][voice][cc][value]          (4B)
 
 // ---------------- CRC-8/ATM (poly 0x07, init 0x00) ----------------
 inline uint8_t lws_crc8_update(uint8_t crc, uint8_t b) {
