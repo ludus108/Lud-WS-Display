@@ -54,12 +54,12 @@ uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
 int presetNumB = 0;
-int timbrA[MAX_preset][MAX_timbrA];
+/* int timbrA[MAX_preset][MAX_timbrA];
 int timbrB[MAX_preset][MAX_timbrB];
 int tempTimbrA[MAX_timbrA];
 int tempTimbrB[MAX_timbrB];
 char presetNamesA[MAX_preset][MAX_timbrA];
-char presetNamesB[MAX_preset][MAX_timbrB];
+char presetNamesB[MAX_preset][MAX_timbrB]; */
 int preset_visible_count = 8;
 lv_obj_t *preset_dropdown_A = NULL;
 lv_obj_t *preset_dropdown_B = NULL;
@@ -124,13 +124,47 @@ bool sd_init();
 
 // ========================== INCLUDE HEADER ==========================
 #include "src/grafica/lvglGraf.h"
-#include "preset_sd.h"
 #include "comunicazioni.h"
-#include "preset_sd.h"           // (già dentro globals.h, se hai fatto la patch)
-#include "preset_cache.h"
-#include "preset_transfer.h"     // contiene sendBlobToVoice, loadPresetToVoice, ecc.
-#include "preset_ui.h"
+#include "src/preset/preset_sd.h"           // (già dentro globals.h, se hai fatto la patch)
+#include "src/preset/preset_cache.h"
+#include "src/preset/preset_transfer.h"     // contiene sendBlobToVoice, loadPresetToVoice, ecc.
+#include "src/preset/preset_ui.h"
+// =========================================================================
+// PRESET — Wrapper per la UI
+// =========================================================================
 
+bool requestPresetLoad(int synth, int presetId) {
+    if (synth == 0) {
+        // SynthA: carica su tutte le voci (Poly). Se sei in MultiMono,
+        // chiama loadPresetSynthA_MultiMono(map) al posto di questa.
+        return loadPresetSynthA_Poly((uint8_t)presetId);
+    } else {
+        return loadPresetSynthB((uint8_t)presetId);
+    }
+}
+
+bool requestPresetSave(int synth, int presetId) {
+    if (synth == 0) {
+        // Salva la cache della voce 0 (la UI del Display rappresenta
+        // una sola voce alla volta in modalità Poly).
+        return savePresetA(0, (uint8_t)presetId);
+    } else {
+        return savePresetB((uint8_t)presetId);
+    }
+}
+
+void requestRenameApply(int synth, int presetId, const char *newName) {
+    if (newName == nullptr) return;
+    if (synth == 0) {
+        strncpy(nome_presetA[presetId], newName, PRESET_NAME_LEN - 1);
+        nome_presetA[presetId][PRESET_NAME_LEN - 1] = '\0';
+        savePresetNamesToSD(0);
+    } else {
+        strncpy(nome_presetB[presetId], newName, PRESET_NAME_LEN - 1);
+        nome_presetB[presetId][PRESET_NAME_LEN - 1] = '\0';
+        savePresetNamesToSD(1);
+    }
+}
 // ========================== SD CARD ==========================
 bool sd_init() {
     SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
@@ -145,10 +179,11 @@ bool sd_init() {
 // ========================== SEL PRESET ==========================
 void selPreset(byte chi, int idx) {
     if (chi == 0) {
-        for (int i = 0; i < MAX_timbrA; i++) tempTimbrA[i] = timbrA[idx][i];
-    }
-    if (chi == 1) {
-        for (int i = 0; i < MAX_timbrB; i++) tempTimbrB[i] = timbrB[idx][i];
+        // SynthA: carica preset idx su tutte le voci (Poly)
+        loadPresetSynthA_Poly((uint8_t)idx);
+    } else if (chi == 1) {
+        // SynthB
+        loadPresetSynthB((uint8_t)idx);
     }
 }
 void reset_GT911(){

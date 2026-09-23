@@ -59,32 +59,18 @@ static const uint8_t LWS_END2 = '!';
 // =========================================================================
 // Il Display invia un preset in chunk. Il target risponde con ACK finale.
 //
-// CMD_PRESET_BEGIN 'b' : [target][voice][preset_id][len_lo][len_hi]
-//                        Il target prepara un buffer di `len` byte.
-// CMD_PRESET_CHUNK 'h' : [target][voice][off_lo][off_hi][data...]
-//                        Fire-and-forget. Nessun ACK per chunk.
-// CMD_PRESET_END   'e' : [target][voice][crc8]
-//                        Il target verifica CRC e applica. Risponde ACK.
-// CMD_PRESET_ACK   'a' : [target][voice][status]
-//                        status: 0=OK, 1=CRC fail, 2=len fail, 3=ver fail
-//
-// CMD_PRESET_READ  'r' : [target][voice][preset_id]
-//                        Richiesta di dump. Il target risponde con
-//                        CMD_PRESET_DUMP_* in modo identico.
-// CMD_PRESET_DUMP_BEGIN 'B' : [voice][len_lo][len_hi]
-// CMD_PRESET_DUMP_CHUNK 'H' : [voice][off_lo][off_hi][data...]
-// CMD_PRESET_DUMP_END   'E' : [voice][crc8]
+// NB: 'j' (minuscola) e 'Q' (maiuscola) sono stati scelti per evitare
+// collisioni con CMD_MIDI_BEND='b' e CMD_MIDI_CC_V='K'.
 // =========================================================================
-#ifndef CMD_PRESET_BEGIN
-  #define CMD_PRESET_BEGIN       'b'
-  #define CMD_PRESET_CHUNK       'h'
-  #define CMD_PRESET_END         'e'
-  #define CMD_PRESET_ACK         'a'
-  #define CMD_PRESET_READ        'r'
- #define CMD_PRESET_DUMP_BEGIN  'K'
-#define CMD_PRESET_DUMP_CHUNK  'L'
-#define CMD_PRESET_DUMP_END    'O'
-#endif
+#define CMD_PRESET_BEGIN       'j'   // [target][voice][id][len_lo][len_hi]
+#define CMD_PRESET_CHUNK       'h'   // [target][voice][off_lo][off_hi][data...]
+#define CMD_PRESET_END         'e'   // [target][voice][crc8]
+#define CMD_PRESET_ACK         'a'   // [target][voice][status]
+#define CMD_PRESET_READ        'r'   // [target][voice][id]
+#define CMD_PRESET_DUMP_BEGIN  'Q'   // [voice][len_lo][len_hi]
+#define CMD_PRESET_DUMP_CHUNK  'L'   // [voice][off_lo][off_hi][data...]
+#define CMD_PRESET_DUMP_END    'O'   // [voice][crc8]
+
 
 // ---------------- CRC-8/ATM (poly 0x07, init 0x00) ----------------
 inline uint8_t lws_crc8_update(uint8_t crc, uint8_t b) {

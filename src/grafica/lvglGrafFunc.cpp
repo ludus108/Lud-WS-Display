@@ -4,16 +4,25 @@
 // ============================================================
 #include "globals.h"
 #include "lvglGraf.h"
-#include "preset_sd.h"
 #include <Arduino.h>
 #include <math.h>
 #include "lvgl_v8_port.h"   // per lvgl_port_lock/unlock
-
+#include "src/preset/preset_ui.h"
 // ========================== COSTANTI LOCALI ==========================
 #define TL_ACTIVE_OPA  70
 #define TL_IDLE_OPA      0
 #define ENV_POINTS     60
-
+// UI index  →  firmware value
+// 0 SAW     →  0 SAW
+// 1 SAW8    →  4 OCT-SAW
+// 2 TRI     →  3 TRI
+// 3 SQR     →  2 SQR
+// 4 SINE    →  1 SINE
+// 5 FM1     →  5 FM1
+// 6 FM2     →  6 FM2
+// 7 FM3     →  7 FM3
+// 8 NOISE   →  8 NOISE
+static const uint8_t ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8};
 // ========================== STATICHE LOCALI ==========================
 static void disc_btn_click(lv_event_t *e) {
     (void)e;
@@ -269,16 +278,35 @@ void grid_btn_click(lv_event_t *e) {
     grid_selected_idx[idx] = btn_idx;
 
     int cat = shape_data[idx].current_cat;
-    int global_idx;
-    switch(cat) {
-        case CAT_WF: global_idx = btn_idx; break;
-        case CAT_FM: global_idx = 9 + btn_idx; break;
-        case CAT_AM: global_idx = 17 + btn_idx; break;
-        default: global_idx = btn_idx; break;
+
+    if (synth_id == SRC_A) {
+        // SynthA: indice globale 0..24 (già gestito dal firmware SynthA)
+        int global_idx;
+        switch (cat) {
+            case CAT_WF: global_idx = btn_idx; break;
+            case CAT_FM: global_idx = 9 + btn_idx; break;
+            case CAT_AM: global_idx = 17 + btn_idx; break;
+            default:     global_idx = btn_idx; break;
+        }
+        g.wa = global_idx;
+        // TODO: send to SynthA (voce, K_WAVEFORM)
+    } else {
+        // SynthB: mapping UI → firmware
+        // - Categoria WF: applica ui2fw_wave[]
+        // - Categoria FM: wave_B è 0..7 (FM1..FM8), coincide con UI FM_ITEMS
+        // - Categoria AM: wave_B è 0..7, coincide con UI AM_ITEMS
+        uint8_t fwWave;
+        if (cat == CAT_WF) {
+            fwWave = (btn_idx < 9) ? ui2fw_wave[btn_idx] : 0;
+        } else {
+            fwWave = (uint8_t)btn_idx;   // FM/AM: 0..7 diretto
+        }
+
+        g.wb = btn_idx;                            // UI cache (per plotter)
+        uiSetParamB_U8('w', fwWave);               // wave_B
+        uiSetParamB_U8('m', (uint8_t)cat);         // wave_mode_B (assicura coerenza)
     }
-    if (synth_id == SRC_A) g.wa = global_idx;
-    else g.wb = global_idx;
- //   wave_shape(global_idx, synth_id);
+
     update_plotter_by_wave(synth_id);
 }
 
@@ -925,8 +953,8 @@ void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h) {
 static lv_obj_t* create_preset_label(lv_obj_t *parent, lv_obj_t *title_lbl, bool isA) {
     lv_obj_t *info = lv_label_create(parent);
     char buf[64];
-    if (isA) snprintf(buf, sizeof(buf), "Pn%d %s", presetNumA+1, presetNamesA[presetNumA]);
-    else     snprintf(buf, sizeof(buf), "Pn%d %s", presetNumB+1, presetNamesB[presetNumB]);
+    if (isA) snprintf(buf, sizeof(buf), "Pn%d %s", presetNumA+1, nome_presetA[presetNumA]);
+    else     snprintf(buf, sizeof(buf), "Pn%d %s", presetNumB+1, nome_presetB[presetNumB]);
     lv_label_set_text(info, buf);
     lv_obj_set_style_text_color(info, lv_color_hex(0xFFFFFF), 0);   // BIANCO
     lv_obj_set_style_text_font(info, &lv_font_montserrat_24, 0);    // font grande
@@ -1313,7 +1341,7 @@ for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
         int id = (strcmp(title, "SYNTH A") == 0) ? 0 : 1;
         const char *lbl = (id == 0) ? "Preset A" : "Preset B";
         int *ptr = (id == 0) ? &presetNumA : &presetNumB;
-        char (*names)[32] = (id == 0) ? (char (*)[32])presetNamesA : (char (*)[32])presetNamesB;
+         char (*names)[PRESET_NAME_LEN] = (id == 0) ? nome_presetA : nome_presetB;
         create_preset_selector(m, 450, 2, lbl, ptr, names);
         update_preset_dropdown_options();
 		
@@ -1656,24 +1684,32 @@ void ecat_btn(lv_event_t *e) {
 
     d->current_cat = cat;
     const char *items;
-    switch(cat) {
+    switch (cat) {
         case CAT_WF: items = WF_ITEMS; break;
         case CAT_FM: items = FM_ITEMS; break;
         case CAT_AM: items = AM_ITEMS; break;
-        default: items = WF_ITEMS; break;
+        default:     items = WF_ITEMS; break;
     }
     d->list_items = items;
     populate_grid(d->list, items, 0, synth_id);
     update_leds(d->leds, cat);
 
-    if (synth_id == SRC_A) g.wa = (cat == CAT_WF) ? 0 : (cat == CAT_FM ? 9 : 17);
-    else g.wb = (cat == CAT_WF) ? 0 : (cat == CAT_FM ? 9 : 17);
-    update_plotter_by_wave(synth_id);
+    if (synth_id == SRC_A) {
+        g.wa = (cat == CAT_WF) ? 0 : (cat == CAT_FM ? 9 : 17);
+        // TODO: send to SynthA (voce, K_MODE)
+    } else {
+        g.wb = 0;
 
-    /* const char *cat_names[] = {"WF", "FM", "AM"};
-    char logbuf[32];
-    snprintf(logbuf, sizeof(logbuf), "Cat: %s (Synth %c)", cat_names[cat], (synth_id == SRC_A) ? 'A' : 'B');
-    log_add(logbuf, lv_color_hex(0x66AAFF)); */
+        // Cambio categoria → cambio mode + reset waveform alla prima della categoria
+        uiSetParamB_U8('m', (uint8_t)cat);   // wave_mode_B
+
+        uint8_t firstWave;
+        if (cat == CAT_WF) firstWave = ui2fw_wave[0];   // SAW → 0
+        else               firstWave = 0;               // FM1/AM1 → 0
+        uiSetParamB_U8('w', firstWave);     // wave_B
+    }
+
+    update_plotter_by_wave(synth_id);
 }
 
 void ehslider(lv_event_t *e) {
@@ -1681,9 +1717,18 @@ void ehslider(lv_event_t *e) {
     lv_obj_t *slider = lv_event_get_target(e);
     int cur = lv_slider_get_value(slider);
 
-    if (d->id == SRC_A) g.shape_a = cur;
-    else g.shape_b = cur;
+    if (d->id == SRC_A) {
+        g.shape_a = cur;
+        // TODO: send to SynthA (voce, K_MOD_IN_B)
+    } else {
+        g.shape_b = cur;
 
+        // Slider 0..100 → modInB 0..1023
+        int32_t modInB = map(cur, 0, 100, 0, 1023);
+        uiSetParamB_I32('i', modInB);       // shape_B
+    }
+
+    // --- Logica freccina/crossing (invariata) ---
     int target = (d->id == SRC_A) ? g.pre_shape_A : g.pre_shape_B;
     bool *crs_flag = (d->id == SRC_A) ? &g.shape_crs_A : &g.shape_crs_B;
     int *last_val = (d->id == SRC_A) ? &g.shape_last_A : &g.shape_last_B;
@@ -1711,7 +1756,7 @@ void ehslider(lv_event_t *e) {
         }
     } else {
         if (d->id == SRC_A) g.shape_arrow_A = 0;
-        else g.shape_arrow_B = 0;
+        else                g.shape_arrow_B = 0;
     }
     *last_val = cur;
 

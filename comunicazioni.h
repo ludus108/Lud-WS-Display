@@ -274,45 +274,27 @@ static void process_frame(const LwsFrame &f) {
         }
 
         // Fire-and-forget: applica e basta, NESSUN ACK
+               // Fire-and-forget: solo log (nel nuovo sistema il Display non
+        // riceve aggiornamenti parametrici: è lui la sorgente di verità).
         case CMD_PARAM: {
             if (f.len >= 3) {
-                char    target = (char)f.data[0];
-                char    key    = (char)f.data[1];
-                uint8_t val    = f.data[2];
-                if (target == 'A') {
-                    for (uint8_t i = 0; i < MAPA_SIZE; i++)
-                        if (mapA[i].key == key) { timbrA[presetNumA][mapA[i].index] = val; break; }
-                } else if (target == 'B') {
-                    for (uint8_t i = 0; i < MAPB_SIZE; i++)
-                        if (mapB[i].key == key) { timbrB[presetNumB][mapB[i].index] = val; break; }
-                }
-				// in comunicazioni.h (Display), dentro process_frame, nei due case PARAM:
-else if (target == ID_TEENSY) {
-    // opzionale: aggiorna UI locale (slider BPM, label pattern, ecc.)
-    Serial.printf("[T] key=%c val=%u\n", key, val);
-}
+                Serial.printf("[LWS] CMD_PARAM da %c: target=%c key=%c val=%u\n",
+                              (char)f.sender, (char)f.data[0],
+                              (char)f.data[1], f.data[2]);
             }
             break;
         }
 
-        // Reliable: applica e invia ACK
+        // Reliable: solo log + ACK (ricevuto per compatibilità)
         case CMD_PARAM_REL: {
             if (f.len >= 3) {
-                char    target = (char)f.data[0];
-                char    key    = (char)f.data[1];
-                uint8_t val    = f.data[2];
-                if (target == 'A') {
-                    for (uint8_t i = 0; i < MAPA_SIZE; i++)
-                        if (mapA[i].key == key) { timbrA[presetNumA][mapA[i].index] = val; break; }
-                } else if (target == 'B') {
-                    for (uint8_t i = 0; i < MAPB_SIZE; i++)
-                        if (mapB[i].key == key) { timbrB[presetNumB][mapB[i].index] = val; break; }
-                }
+                Serial.printf("[LWS] CMD_PARAM_REL da %c: target=%c key=%c val=%u\n",
+                              (char)f.sender, (char)f.data[0],
+                              (char)f.data[1], f.data[2]);
                 send_param_ack(f.seq, f.cmd);
             }
             break;
         }
-
         case CMD_ERROR: {
             char msg[64] = {0};
             if (f.len >= 2) {

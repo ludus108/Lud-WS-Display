@@ -1,11 +1,15 @@
 // ============================================================
-// lvglPreset.cpp - Preset: gestione, dropdown, rename, SD
+// lvglPreset.cpp - Preset: dropdown, +/-, Sel, Save, rename
 // ============================================================
+// La logica SD e trasferimento vive in src/preset/.
+// Questo file gestisce SOLO l'interazione utente.
+// ============================================================
+
 #include "globals.h"
 #include "lvglGraf.h"
-#include "preset_sd.h"
 #include <Arduino.h>
 #include <SD.h>
+
 
 // ========================== STATICHE LOCALI ==========================
 static lv_obj_t *rename_win        = NULL;
@@ -13,25 +17,17 @@ static lv_obj_t *rename_ta         = NULL;
 static int       rename_preset_idx = 0;
 static lv_obj_t *confirm_win       = NULL;
 
-// ========================== NOMI PRESET ==========================
-void initPresetNamesA() {
-    for (int i = 0; i < MAX_preset; i++)
-        snprintf(presetNamesA[i], MAX_timbrA, "Preset %d", i + 1);
-}
-
-void initPresetNamesB() {
-    for (int i = 0; i < MAX_preset; i++)
-        snprintf(presetNamesB[i], MAX_timbrB, "Preset %d", i + 1);
-}
-
+// ========================== DROPDOWN E LABEL ==========================
 void update_preset_labels() {
     char buf[64];
     if (preset_label_A && lv_obj_is_valid(preset_label_A)) {
-        snprintf(buf, sizeof(buf), "Pn%d %s", presetNumA+1, presetNamesA[presetNumA]);
+        snprintf(buf, sizeof(buf), "Pn%d %s",
+                 presetNumA + 1, nome_presetA[presetNumA]);
         lv_label_set_text(preset_label_A, buf);
     }
     if (preset_label_B && lv_obj_is_valid(preset_label_B)) {
-        snprintf(buf, sizeof(buf), "Pn%d %s", presetNumB+1, presetNamesB[presetNumB]);
+        snprintf(buf, sizeof(buf), "Pn%d %s",
+                 presetNumB + 1, nome_presetB[presetNumB]);
         lv_label_set_text(preset_label_B, buf);
     }
 }
@@ -43,52 +39,60 @@ void update_preset_dropdown(lv_obj_t *dd, int *numPtr) {
 }
 
 void update_preset_dropdown_options() {
-    char optsA[1024] = {0};
-    char optsB[1024] = {0};
-    size_t lenA = 0, lenB = 0;
+    // Costruisci le stringhe di opzioni (una riga per preset)
+    static char optsA[1024];
+    static char optsB[1024];
+    optsA[0] = '\0';
+    optsB[0] = '\0';
 
-    for (int i = 0; i < MAX_preset; i++) {
-        if (lenA > 0) optsA[lenA++] = '\n';
-        if (lenA < sizeof(optsA) - 1) {
-            strcat(optsA, presetNamesA[i]);
-            lenA = strlen(optsA);
+    for (int i = 0; i < MAX_PRESET; i++) {
+        if (i > 0) {
+            strncat(optsA, "\n", sizeof(optsA) - strlen(optsA) - 1);
+            strncat(optsB, "\n", sizeof(optsB) - strlen(optsB) - 1);
         }
-        if (lenB > 0) optsB[lenB++] = '\n';
-        if (lenB < sizeof(optsB) - 1) {
-            strcat(optsB, presetNamesB[i]);
-            lenB = strlen(optsB);
-        }
+        strncat(optsA, nome_presetA[i], sizeof(optsA) - strlen(optsA) - 1);
+        strncat(optsB, nome_presetB[i], sizeof(optsB) - strlen(optsB) - 1);
     }
 
     if (preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A)) {
         lv_dropdown_set_options(preset_dropdown_A, optsA);
-        lv_dropdown_set_selected(preset_dropdown_A, (pendingPresetA >= 0) ? pendingPresetA : presetNumA);
+        lv_dropdown_set_selected(preset_dropdown_A,
+            (pendingPresetA >= 0) ? pendingPresetA : presetNumA);
     }
     if (preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B)) {
         lv_dropdown_set_options(preset_dropdown_B, optsB);
-        lv_dropdown_set_selected(preset_dropdown_B, (pendingPresetB >= 0) ? pendingPresetB : presetNumB);
+        lv_dropdown_set_selected(preset_dropdown_B,
+            (pendingPresetB >= 0) ? pendingPresetB : presetNumB);
     }
     update_preset_labels();
 }
 
+// ========================== APPLICA PRESET ==========================
 void apply_pending_preset(int synth_id) {
     if (synth_id == 0 && pendingPresetA >= 0) {
         presetNumA = pendingPresetA;
         pendingPresetA = -1;
         if (preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A))
-            lv_obj_set_style_text_color(preset_dropdown_A, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_text_color(preset_dropdown_A,
+                                        lv_color_hex(0xFFFFFF), 0);
+
+        // Chiama il wrapper (definito nel .ino)
+        requestPresetLoad(0, presetNumA);
+
         update_preset_labels();
         update_preset_dropdown_options();
-      //  log_add("Preset A applicato", lv_color_hex(0x00FF00));
         update_all_targets();
     } else if (synth_id == 1 && pendingPresetB >= 0) {
         presetNumB = pendingPresetB;
         pendingPresetB = -1;
         if (preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B))
-            lv_obj_set_style_text_color(preset_dropdown_B, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_text_color(preset_dropdown_B,
+                                        lv_color_hex(0xFFFFFF), 0);
+
+        requestPresetLoad(1, presetNumB);
+
         update_preset_labels();
         update_preset_dropdown_options();
-   //     log_add("Preset B applicato", lv_color_hex(0x00FF00));
         update_all_targets();
     }
     if (pendingPresetA < 0 && pendingPresetB < 0 && blink_timer) {
@@ -98,12 +102,15 @@ void apply_pending_preset(int synth_id) {
     }
 }
 
+// ========================== BLINK ==========================
 void blink_timer_cb(lv_timer_t *timer) {
     blink_state = !blink_state;
     lv_color_t c = blink_state ? lv_color_hex(0xFFFF00) : lv_color_hex(0xFFFFFF);
-    if (pendingPresetA >= 0 && preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A))
+    if (pendingPresetA >= 0 && preset_dropdown_A &&
+        lv_obj_is_valid(preset_dropdown_A))
         lv_obj_set_style_text_color(preset_dropdown_A, c, 0);
-    if (pendingPresetB >= 0 && preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B))
+    if (pendingPresetB >= 0 && preset_dropdown_B &&
+        lv_obj_is_valid(preset_dropdown_B))
         lv_obj_set_style_text_color(preset_dropdown_B, c, 0);
     if (pendingPresetA < 0 && pendingPresetB < 0 && blink_timer) {
         lv_timer_del(blink_timer);
@@ -112,21 +119,21 @@ void blink_timer_cb(lv_timer_t *timer) {
     }
 }
 
+// ========================== EVENTI DROPDOWN / BOTTONI ==========================
 void preset_dropdown_event(lv_event_t *e) {
     lv_obj_t *dd = lv_event_get_target(e);
     if (!dd || !lv_obj_is_valid(dd)) return;
     int sel = lv_dropdown_get_selected(dd);
-    if (sel < 0 || sel >= MAX_preset) return;
+    if (sel < 0 || sel >= MAX_PRESET) return;
+
     if (dd == preset_dropdown_A) {
         pendingPresetA = sel;
         lv_obj_set_style_text_color(dd, lv_color_hex(0xFFFF00), 0);
         if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
-       // log_add("Preset A in attesa", lv_color_hex(0xFFAA00));
     } else if (dd == preset_dropdown_B) {
         pendingPresetB = sel;
         lv_obj_set_style_text_color(dd, lv_color_hex(0xFFFF00), 0);
         if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
-   //     log_add("Preset B in attesa", lv_color_hex(0xFFAA00));
     }
 }
 
@@ -134,52 +141,42 @@ void preset_btn_plus(lv_event_t *e) {
     int id = (int)(uintptr_t)lv_event_get_user_data(e);
     if (id == 0) {
         int val = (pendingPresetA >= 0) ? pendingPresetA : presetNumA;
-        pendingPresetA = (++val >= MAX_preset) ? 0 : val;
+        pendingPresetA = (++val >= MAX_PRESET) ? 0 : val;
         if (preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A)) {
             lv_dropdown_set_selected(preset_dropdown_A, pendingPresetA);
             lv_obj_set_style_text_color(preset_dropdown_A, lv_color_hex(0xFFFF00), 0);
-            lv_dropdown_open(preset_dropdown_A);
         }
-        if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
     } else {
         int val = (pendingPresetB >= 0) ? pendingPresetB : presetNumB;
-        pendingPresetB = (++val >= MAX_preset) ? 0 : val;
+        pendingPresetB = (++val >= MAX_PRESET) ? 0 : val;
         if (preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B)) {
             lv_dropdown_set_selected(preset_dropdown_B, pendingPresetB);
             lv_obj_set_style_text_color(preset_dropdown_B, lv_color_hex(0xFFFF00), 0);
-            lv_dropdown_open(preset_dropdown_B);
         }
-        if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
     }
+    if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
     update_preset_labels();
-   /*  char buf[32]; snprintf(buf, sizeof(buf), "Preset +: A=%d B=%d", presetNumA, presetNumB);
-    log_add(buf, lv_color_hex(0x66AAFF)); */
 }
 
 void preset_btn_minus(lv_event_t *e) {
     int id = (int)(uintptr_t)lv_event_get_user_data(e);
     if (id == 0) {
         int val = (pendingPresetA >= 0) ? pendingPresetA : presetNumA;
-        pendingPresetA = (--val < 0) ? MAX_preset - 1 : val;
+        pendingPresetA = (--val < 0) ? MAX_PRESET - 1 : val;
         if (preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A)) {
             lv_dropdown_set_selected(preset_dropdown_A, pendingPresetA);
             lv_obj_set_style_text_color(preset_dropdown_A, lv_color_hex(0xFFFF00), 0);
-            lv_dropdown_open(preset_dropdown_A);
         }
-        if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
     } else {
         int val = (pendingPresetB >= 0) ? pendingPresetB : presetNumB;
-        pendingPresetB = (--val < 0) ? MAX_preset - 1 : val;
+        pendingPresetB = (--val < 0) ? MAX_PRESET - 1 : val;
         if (preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B)) {
             lv_dropdown_set_selected(preset_dropdown_B, pendingPresetB);
             lv_obj_set_style_text_color(preset_dropdown_B, lv_color_hex(0xFFFF00), 0);
-            lv_dropdown_open(preset_dropdown_B);
         }
-        if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
     }
+    if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
     update_preset_labels();
- /*    char buf[32]; snprintf(buf, sizeof(buf), "Preset -: A=%d B=%d", presetNumA, presetNumB);
-    log_add(buf, lv_color_hex(0x66AAFF)); */
 }
 
 void preset_btn_sel(lv_event_t *e) {
@@ -189,25 +186,25 @@ void preset_btn_sel(lv_event_t *e) {
 
 static void preset_btn_save(lv_event_t *e) {
     int id = (int)(uintptr_t)lv_event_get_user_data(e);
-    bool ok = false;
-    if (id == 0) {
-        ok = saveCurrentPresetA();
-        if (ok) ok = saveNamesToSD(0);
-    } else {
-        ok = saveCurrentPresetB();
-        if (ok) ok = saveNamesToSD(1);
-    }
+    int pid = (id == 0) ? presetNumA : presetNumB;
+    bool ok = requestPresetSave(id, pid);
     if (ok) {
-        log_add(id == 0 ? "Preset A salvato" : "Preset B salvato", lv_color_hex(0x00FF00));
-        toast_show(id == 0 ? "Preset A salvato!" : "Preset B salvato!", lv_color_hex(0x00FF00), TOAST_DUR);
+        log_add(id == 0 ? "Preset A salvato" : "Preset B salvato",
+                lv_color_hex(0x00FF00));
+        toast_show(id == 0 ? "Preset A salvato!" : "Preset B salvato!",
+                   lv_color_hex(0x00FF00), TOAST_DUR);
     } else {
         log_add("Errore salvataggio", lv_color_hex(0xFF0000));
         toast_show("Errore salvataggio!", lv_color_hex(0xFF0000), TOAST_DUR);
     }
 }
 
-lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y, const char *label_text, int *numPtr, char (*names)[32]) {
+// ========================== SELECTOR ==========================
+lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y,
+                                 const char *label_text, int *numPtr,
+                                 char (*names)[PRESET_NAME_LEN]) {
     int id = (label_text[7] == 'A') ? 0 : 1;
+
     lv_obj_t *cont = lv_obj_create(parent);
     lv_obj_set_size(cont, 380, 320);
     lv_obj_set_pos(cont, x - 30, y);
@@ -232,10 +229,11 @@ lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y, const char *lab
     lv_obj_set_style_pad_left(dd, 10, 0);
     lv_obj_set_style_pad_right(dd, 10, 0);
 
-    char opts[512] = "";
-    for (int i = 0; i < MAX_preset; i++) {
-        strcat(opts, names[i]);
-        if (i < MAX_preset - 1) strcat(opts, "\n");
+    static char opts[1024];
+    opts[0] = '\0';
+    for (int i = 0; i < MAX_PRESET; i++) {
+        if (i > 0) strncat(opts, "\n", sizeof(opts) - strlen(opts) - 1);
+        strncat(opts, names[i], sizeof(opts) - strlen(opts) - 1);
     }
     lv_dropdown_set_options(dd, opts);
     lv_dropdown_set_selected(dd, *numPtr);
@@ -248,12 +246,16 @@ lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y, const char *lab
     lv_obj_set_style_pad_all(list, 5, 0);
     lv_obj_add_event_cb(dd, preset_dropdown_event, LV_EVENT_VALUE_CHANGED, NULL);
 
+    const char *btn_labels[]  = {"+", "-", "Sel", "Save"};
+    lv_color_t btn_colors[]   = {lv_color_hex(0x1A6B4A), lv_color_hex(0x6B1A1A),
+                                 lv_color_hex(0x0055AA), lv_color_hex(0x885500)};
+    lv_color_t btn_borders[]  = {lv_color_hex(0x00FF88), lv_color_hex(0xFF4444),
+                                 lv_color_hex(0x88CCFF), lv_color_hex(0xFFAA44)};
+    lv_event_cb_t callbacks[] = {preset_btn_plus, preset_btn_minus,
+                                 preset_btn_sel,  preset_btn_save};
+
     int y_plus = 25;
     int y_step = 60 + 6;
-    const char *btn_labels[] = {"+", "-", "Sel", "Save"};
-    lv_color_t btn_colors[] = {lv_color_hex(0x1A6B4A), lv_color_hex(0x6B1A1A), lv_color_hex(0x0055AA), lv_color_hex(0x885500)};
-    lv_color_t btn_borders[] = {lv_color_hex(0x00FF88), lv_color_hex(0xFF4444), lv_color_hex(0x88CCFF), lv_color_hex(0xFFAA44)};
-    lv_event_cb_t callbacks[] = {preset_btn_plus, preset_btn_minus, preset_btn_sel, preset_btn_save};
 
     for (int i = 0; i < 4; i++) {
         lv_obj_t *b = lv_btn_create(cont);
@@ -266,13 +268,15 @@ lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y, const char *lab
         lv_obj_t *lbl = lv_label_create(b);
         lv_label_set_text(lbl, btn_labels[i]);
         lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(lbl, (i == 3) ? &lv_font_montserrat_18 : &lv_font_montserrat_32, 0);
+        lv_obj_set_style_text_font(lbl,
+            (i == 3) ? &lv_font_montserrat_18 : &lv_font_montserrat_32, 0);
         lv_obj_center(lbl);
-        lv_obj_add_event_cb(b, callbacks[i], LV_EVENT_CLICKED, (void*)(uintptr_t)id);
+        lv_obj_add_event_cb(b, callbacks[i], LV_EVENT_CLICKED,
+                            (void*)(uintptr_t)id);
     }
 
     if (id == 0) preset_dropdown_A = dd;
-    else preset_dropdown_B = dd;
+    else         preset_dropdown_B = dd;
     return dd;
 }
 
@@ -285,17 +289,14 @@ static void rename_confirm(lv_event_t *e) {
     (void)e;
     const char *name = lv_textarea_get_text(rename_ta);
     if (strlen(name) > 0) {
-        if (g.synth && strcmp(g.synth, "SYNTH A") == 0) {
-            strncpy(presetNamesA[rename_preset_idx], name, MAX_timbrA - 1);
-            presetNamesA[rename_preset_idx][MAX_timbrA - 1] = '\0';
-            saveNamesToSD(0);
-        } else if (g.synth && strcmp(g.synth, "SYNTH B") == 0) {
-            strncpy(presetNamesB[rename_preset_idx], name, MAX_timbrB - 1);
-            presetNamesB[rename_preset_idx][MAX_timbrB - 1] = '\0';
-            saveNamesToSD(1);
-        }
+        int synth = 0;
+        if (g.synth && strcmp(g.synth, "SYNTH A") == 0)      synth = 0;
+        else if (g.synth && strcmp(g.synth, "SYNTH B") == 0) synth = 1;
+
+        // Wrapper nel .ino
+        requestRenameApply(synth, rename_preset_idx, name);
+
         update_preset_dropdown_options();
-       // log_add("Preset rinominato", lv_color_hex(0x66AAFF));
     }
     close_rename_window();
 }
@@ -308,6 +309,7 @@ static void rename_cancel(lv_event_t *e) {
 void open_rename_window(int idx) {
     if (rename_win) return;
     rename_preset_idx = idx;
+
     rename_win = lv_win_create(lv_scr_act(), 0);
     lv_obj_set_size(rename_win, 580, 360);
     lv_obj_set_pos(rename_win, 120, 15);
@@ -320,7 +322,8 @@ void open_rename_window(int idx) {
     lv_obj_set_style_pad_all(client, 10, 0);
     lv_obj_set_style_bg_color(client, lv_color_hex(0x000000), 0);
     lv_obj_set_flex_flow(client, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(client, 10, 0);
 
     rename_ta = lv_textarea_create(client);
@@ -332,11 +335,11 @@ void open_rename_window(int idx) {
     lv_obj_set_style_text_font(rename_ta, &lv_font_montserrat_18, 0);
 
     if (g.synth && strcmp(g.synth, "SYNTH A") == 0) {
-        lv_textarea_set_text(rename_ta, presetNamesA[idx]);
-        lv_textarea_set_max_length(rename_ta, MAX_timbrA - 1);
+        lv_textarea_set_text(rename_ta, nome_presetA[idx]);
+        lv_textarea_set_max_length(rename_ta, PRESET_NAME_LEN - 1);
     } else {
-        lv_textarea_set_text(rename_ta, presetNamesB[idx]);
-        lv_textarea_set_max_length(rename_ta, MAX_timbrB - 1);
+        lv_textarea_set_text(rename_ta, nome_presetB[idx]);
+        lv_textarea_set_max_length(rename_ta, PRESET_NAME_LEN - 1);
     }
 
     lv_obj_t *kb = lv_keyboard_create(client);
@@ -355,7 +358,8 @@ void open_rename_window(int idx) {
     lv_obj_set_style_border_width(btn_cont, 0, 0);
     lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(btn_cont, 20, 0);
 
     lv_obj_t *ok_btn = lv_btn_create(btn_cont);
@@ -379,94 +383,38 @@ void open_rename_window(int idx) {
 
 void rename_btn_click(lv_event_t *e) {
     (void)e;
-    if (g.synth && strcmp(g.synth, "SYNTH A") == 0) open_rename_window(presetNumA);
+    if (g.synth && strcmp(g.synth, "SYNTH A") == 0)      open_rename_window(presetNumA);
     else if (g.synth && strcmp(g.synth, "SYNTH B") == 0) open_rename_window(presetNumB);
 }
 
-// ========================== TARGET SLIDER ==========================
+// ========================== SLIDER TARGET ==========================
+// Nel nuovo schema, lo slider della UI scrive direttamente nella cache
+// tramite uiSetParam* (definiti in src/preset/preset_ui.h).
+// Questa funzione mantiene solo il comportamento grafico locale.
+// La chiamata effettiva verso il synth avviene in eslider() (lvglGrafFunc.cpp).
 void update_slider_parameter(int idx, int value) {
-    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-    if (isA) {
-        if (idx < 4) {
-            switch (idx) {
-                case 0: timbrA[presetNumA][vir_ATTACK_A] = value; break;
-                case 1: timbrA[presetNumA][vir_DECAY_A] = value; break;
-                case 2: timbrA[presetNumA][vir_SUSTAIN_A] = value; break;
-                case 3: timbrA[presetNumA][vir_RELEASE_A] = value; break;
-            }
-        } else {
-            switch (idx) {
-                case 4: timbrA[presetNumA][ana_ATTACK_A] = value; break;
-                case 5: timbrA[presetNumA][ana_DECAY_A] = value; break;
-                case 6: timbrA[presetNumA][ana_SUSTAIN_A] = value; break;
-                case 7: timbrA[presetNumA][ana_RELEASE_A] = value; break;
-            }
-        }
-    } else {
-        if (idx < 4) {
-            switch (idx) {
-                case 0: timbrB[presetNumB][vir_BTTACK_B] = value; break;
-                case 1: timbrB[presetNumB][vir_DECAY_B] = value; break;
-                case 2: timbrB[presetNumB][vir_SUSTAIN_B] = value; break;
-                case 3: timbrB[presetNumB][vir_RELEASE_B] = value; break;
-            }
-        } else {
-            switch (idx) {
-                case 4: timbrB[presetNumB][ana_BTTACK_B] = value; break;
-                case 5: timbrB[presetNumB][ana_DECAY_B] = value; break;
-                case 6: timbrB[presetNumB][ana_SUSTAIN_B] = value; break;
-                case 7: timbrB[presetNumB][ana_RELEASE_B] = value; break;
-            }
-        }
-    }
+    // Aggiorna solo la "posizione target" della UI.
+    // L'invio al synth è responsabilità del chiamante (eslider()).
+    g.pre[idx] = constrain(value, 0, 255);
+
+    // Nessuna scrittura in array di preset: la cache dei valori
+    // sta in cacheA[voice] / cacheB e viene aggiornata da uiSetParam*.
 }
 
 void update_slider_target(int idx) {
     if (idx < 0 || idx > 7) return;
-    int val = 0;
-    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-    if (isA) {
-        if (idx < 4) {
-            switch (idx) {
-                case 0: val = timbrA[presetNumA][vir_ATTACK_A]; break;
-                case 1: val = timbrA[presetNumA][vir_DECAY_A]; break;
-                case 2: val = timbrA[presetNumA][vir_SUSTAIN_A]; break;
-                case 3: val = timbrA[presetNumA][vir_RELEASE_A]; break;
-            }
-        } else {
-            switch (idx) {
-                case 4: val = timbrA[presetNumA][ana_ATTACK_A]; break;
-                case 5: val = timbrA[presetNumA][ana_DECAY_A]; break;
-                case 6: val = timbrA[presetNumA][ana_SUSTAIN_A]; break;
-                case 7: val = timbrA[presetNumA][ana_RELEASE_A]; break;
-            }
-        }
-    } else {
-        if (idx < 4) {
-            switch (idx) {
-                case 0: val = timbrB[presetNumB][vir_BTTACK_B]; break;
-                case 1: val = timbrB[presetNumB][vir_DECAY_B]; break;
-                case 2: val = timbrB[presetNumB][vir_SUSTAIN_B]; break;
-                case 3: val = timbrB[presetNumB][vir_RELEASE_B]; break;
-            }
-        } else {
-            switch (idx) {
-                case 4: val = timbrB[presetNumB][ana_BTTACK_B]; break;
-                case 5: val = timbrB[presetNumB][ana_DECAY_B]; break;
-                case 6: val = timbrB[presetNumB][ana_SUSTAIN_B]; break;
-                case 7: val = timbrB[presetNumB][ana_RELEASE_B]; break;
-            }
-        }
-    }
-    g.pre[idx] = constrain(val, 0, 255);
+    // Nel nuovo schema non c'è lettura da array timbrA/B.
+    // La posizione target è già in g.pre[idx].
+    int val = g.pre[idx];
     if (arr[idx]) {
         int x = slider_base_x[idx];
         int y = slider_base_y[idx];
-        int yf = map(g.pre[idx], 0, 255, (y+242)-13, y+30);
-        lv_obj_set_pos(arr[idx], x-18, yf);
+        int yf = map(val, 0, 255, (y + 242) - 13, y + 30);
+        lv_obj_set_pos(arr[idx], x - 18, yf);
         crs[idx] = false;
         lv_obj_clear_flag(arr[idx], LV_OBJ_FLAG_HIDDEN);
-        if (slider_objs[idx] && lv_obj_is_valid(slider_objs[idx])) update_slider_color(idx, true);
+        if (slider_objs[idx] && lv_obj_is_valid(slider_objs[idx]))
+            update_slider_color(idx, true);
         if (sd[idx].label && lv_obj_is_valid(sd[idx].label))
             lv_obj_set_style_text_color(sd[idx].label, lv_color_hex(0xFFA500), 0);
         last[idx] = lv_slider_get_value(slider_objs[idx]);
@@ -482,7 +430,8 @@ static void confirm_yes_click(lv_event_t *e) {
     (void)e;
     if (confirm_win) { lv_obj_del(confirm_win); confirm_win = NULL; }
     lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
-        init_sd();
+        init_sd();       // da src/preset/preset_sd.cpp
+        presetCacheClearAll();   // da src/preset/preset_cache.cpp
         log_add("SD inizializzata", lv_color_hex(0x00FF00));
         toast_show("SD inizializzata!", lv_color_hex(0x00FF00), TOAST_DUR);
         lv_timer_del(t);
@@ -519,7 +468,8 @@ void init_sd_btn_click(lv_event_t *e) {
     lv_obj_set_style_border_width(cont, 0, 0);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(cont, 20, 0);
 
     lv_obj_t *yes = lv_btn_create(cont);
@@ -540,157 +490,15 @@ void init_sd_btn_click(lv_event_t *e) {
     lv_obj_center(l_no);
     lv_obj_add_event_cb(no, confirm_no_click, LV_EVENT_CLICKED, NULL);
 }
-
-// ========================== SD: STORAGE PRESET ==========================
-void initPresetValues() {
-    for (int p = 0; p < MAX_PRESET; p++) {
-        for (int i = 0; i < MAX_timbrA; i++) {
-            timbrA[p][i] = (i == 0 || i == 1 || i == 19) ? 0 : random(0, 256);
-        }
-        for (int i = 0; i < MAX_timbrB; i++) {
-            timbrB[p][i] = (i == 0 || i == 1 || i == 22) ? 0 : random(0, 256);
-        }
-    }
-}
-
-bool savePresetToSD(int synth, int num) {
-    if (num < 0 || num >= MAX_PRESET) return false;
-    String path = getPresetPath(synth, num);
-    ensureDirectory((synth == 0) ? PRESET_PATH_SYNTH_A : PRESET_PATH_SYNTH_B);
-    File f = SD.open(path, FILE_WRITE);
-    if (!f) return false;
-    String line;
-    if (synth == 0) {
-        for (int i = 0; i < MAX_timbrA; i++) {
-            line += String(timbrA[num][i]);
-            if (i < MAX_timbrA - 1) line += ",";
-        }
-    } else {
-        for (int i = 0; i < MAX_timbrB; i++) {
-            line += String(timbrB[num][i]);
-            if (i < MAX_timbrB - 1) line += ",";
-        }
-    }
-    line += "\n";
-    bool ok = f.print(line) == line.length();
-    f.close();
-    return ok;
-}
-
-bool loadPresetFromSD(int synth, int num) {
-    if (num < 0 || num >= MAX_PRESET) return false;
-    String path = getPresetPath(synth, num);
-    if (!SD.exists(path)) return false;
-    File f = SD.open(path, FILE_READ);
-    if (!f) return false;
-    String line = f.readStringUntil('\n');
-    f.close();
-    line.trim();
-    if (line.length() == 0) return false;
-    int count = 0, start = 0, end;
-    while ((end = line.indexOf(',', start)) != -1 && count < 30) {
-        int val = line.substring(start, end).toInt();
-        if (synth == 0 && count < MAX_timbrA) timbrA[num][count] = val;
-        else if (count < MAX_timbrB) timbrB[num][count] = val;
-        start = end + 1;
-        count++;
-    }
-    if (start < line.length()) {
-        int val = line.substring(start).toInt();
-        if (synth == 0 && count < MAX_timbrA) timbrA[num][count] = val;
-        else if (count < MAX_timbrB) timbrB[num][count] = val;
-    }
-    return true;
-}
-
-bool saveNamesToSD(int synth) {
-    String path = (synth == 0) ? String(PRESET_PATH_SYNTH_A) + "nomi.csv" : String(PRESET_PATH_SYNTH_B) + "nomi.csv";
-    File f = SD.open(path, FILE_WRITE);
-    if (!f) return false;
-    if (synth == 0) {
-        for (int i = 0; i < MAX_PRESET; i++) f.println(presetNamesA[i]);
-    } else {
-        for (int i = 0; i < MAX_PRESET; i++) f.println(presetNamesB[i]);
-    }
-    f.close();
-    return true;
-}
-
-bool loadNamesFromSD(int synth) {
-    String path = (synth == 0) ? String(PRESET_PATH_SYNTH_A) + "nomi.csv" : String(PRESET_PATH_SYNTH_B) + "nomi.csv";
-    if (!SD.exists(path)) return false;
-    File f = SD.open(path, FILE_READ);
-    if (!f) return false;
-    if (synth == 0) {
-        for (int i = 0; i < MAX_PRESET && f.available(); i++) {
-            String name = f.readStringUntil('\n');
-            name.trim();
-            name.replace("\r", "");
-            if (name.length() > 0) {
-                strncpy(presetNamesA[i], name.c_str(), MAX_timbrA - 1);
-                presetNamesA[i][MAX_timbrA - 1] = '\0';
-            }
-        }
-    } else {
-        for (int i = 0; i < MAX_PRESET && f.available(); i++) {
-            String name = f.readStringUntil('\n');
-            name.trim();
-            name.replace("\r", "");
-            if (name.length() > 0) {
-                strncpy(presetNamesB[i], name.c_str(), MAX_timbrB - 1);
-                presetNamesB[i][MAX_timbrB - 1] = '\0';
-            }
-        }
-    }
-    f.close();
-    return true;
-}
-
-bool saveAllToSD() {
-    bool ok = true;
-    for (int i = 0; i < MAX_PRESET; i++) {
-        if (!savePresetToSD(0, i)) ok = false;
-        if (!savePresetToSD(1, i)) ok = false;
-    }
-    if (!saveNamesToSD(0)) ok = false;
-    if (!saveNamesToSD(1)) ok = false;
-    return ok;
-}
-
-bool loadAllFromSD() {
-    bool ok = true;
-    for (int i = 0; i < MAX_PRESET; i++) {
-        if (!loadPresetFromSD(0, i)) ok = false;
-        if (!loadPresetFromSD(1, i)) ok = false;
-    }
-    if (!loadNamesFromSD(0)) ok = false;
-    if (!loadNamesFromSD(1)) ok = false;
-    return ok;
-}
-
-bool saveCurrentPresetA() { return savePresetToSD(0, presetNumA); }
-bool saveCurrentPresetB() { return savePresetToSD(1, presetNumB); }
-bool loadCurrentPresetA() { return loadPresetFromSD(0, presetNumA); }
-bool loadCurrentPresetB() { return loadPresetFromSD(1, presetNumB); }
-
-void init_sd() {
-    const char* folders[] = {"/preset", PRESET_PATH_SYNTH_A, PRESET_PATH_SYNTH_B,
-                             "/preset/Chorus", "/preset/dlyA", "/preset/dlyB",
-                             "/preset/FM", "/preset/RevFV1"};
-    for (int i = 0; i < 8; i++) ensureDirectory(folders[i]);
-    initPresetValues();
-    initPresetNamesA();
-    initPresetNamesB();
-    saveAllToSD();
-    log_add("SD inizializzata con preset di default", lv_color_hex(0x00FF00));
-}
-
 // ========================== EEPROM SETTINGS ==========================
-// Layout EEPROM (4 byte):
+// Layout EEPROM (5 byte):
 //   [0] bright          0..100
 //   [1] midi_channel_A  1..16
 //   [2] midi_channel_B  1..16
 //   [3] midi_channel_D  1..16
+//   [4] midi_split      0..31
+// ==========================
+
 void load_all_settings() {
     // Luminosità
     uint8_t v = EEPROM.read(0);
@@ -701,11 +509,12 @@ void load_all_settings() {
     uint8_t a = EEPROM.read(1);
     uint8_t b = EEPROM.read(2);
     uint8_t d = EEPROM.read(3);
-	uint8_t s = EEPROM.read(4);
+    uint8_t s = EEPROM.read(4);
+
     midi_channel_A = (a >= 1 && a <= 16) ? a : 1;
     midi_channel_B = (b >= 1 && b <= 16) ? b : 2;
     midi_channel_D = (d >= 1 && d <= 16) ? d : 3;
-	 midi_split = (s <= 31) ? s : 14; 
+    midi_split     = (s <= 31)         ? s : 14;
 }
 
 void save_all_settings() {
@@ -713,7 +522,7 @@ void save_all_settings() {
     EEPROM.write(1, (uint8_t)midi_channel_A);
     EEPROM.write(2, (uint8_t)midi_channel_B);
     EEPROM.write(3, (uint8_t)midi_channel_D);
-	EEPROM.write(4, (uint8_t)midi_split);
+    EEPROM.write(4, (uint8_t)midi_split);
     EEPROM.commit();
 
     log_add("SetUp salvato in EEPROM", lv_color_hex(0x00FF00));

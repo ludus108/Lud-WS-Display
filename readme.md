@@ -14,7 +14,7 @@ FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=o
 
 \- Controllo effetti e meter audio
 
-\- Comunicazione seriale UART verso altri MCU (Router, CTRL, MOD)
+\- Comunicazione seriale UART verso altri MCU (Router, CTRL, MOD, SynthA, SynthB, Teensy (sampler Druma + 4 audio Trahs))
 
 
 
