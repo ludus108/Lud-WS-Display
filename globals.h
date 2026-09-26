@@ -18,7 +18,7 @@ using namespace esp_panel::board;
 #define SD_MOSI        11
 #define SD_CLK         12
 #define SD_MISO        13
-#define EEPROM_SIZE     4
+#define EEPROM_SIZE     5
 #define EEPROM_ADDR     0
 #define LOG_TIMEOUT  2000
 #define TOAST_DUR    2000
@@ -57,18 +57,16 @@ extern struct WaveDef WAVE_DEFS[NUM_WAVES];
 #define MAX_ARCS    6    // MOD Synth A: P1..P6
 
 // ========================== PRESET (INDIPENDENTI) ==========================
-#define MAX_timbrA 23
-#define MAX_timbrB 26
-#define MAX_preset 16
 
-enum paramA {
+
+enum paramA {//POLY 106
   wave_mode_A, wave_A, shape_A, shape_lev_A, shape_rate_A, lfo_pitch_lev_A,
   cutOff_A, res_A, vcf_lfo_A, vcf_env_A, vcf_ana_env_A,
   ana_ATTACK_A, ana_DECAY_A, ana_SUSTAIN_A, ana_RELEASE_A,
   vir_ATTACK_A, vir_DECAY_A, vir_SUSTAIN_A, vir_RELEASE_A,
   lfo_wave_A, lfo_rate_A, vca_vir_env_A, vca_lfo_A
 };
-enum paramB {
+enum paramB {// CHATTER BOX
   wave_mode_B, wave_B, shape_B, shape_lev_B, shape_rate_B, lfo_pitch_lev_B,
   vcf_mode_B, cutOff_1_B, cutOff_2_B, cutOff_3_B, res_B,
   vcf_lfo_B, vcf_env_B, vcf_Bna_env_B,
@@ -136,15 +134,12 @@ extern uint8_t sliderColorDepth;
 // viene ricreato ogni volta che la pagina che lo ospita viene ricostruita.
 extern lv_obj_t *pot_container;
 // ========================== PRESET ARRAY ==========================
-extern int presetNumA, presetNumB;
-extern int timbrA[MAX_preset][MAX_timbrA];
-extern int timbrB[MAX_preset][MAX_timbrB];
-extern int tempTimbrA[MAX_timbrA];
-extern int tempTimbrB[MAX_timbrB];
+#include "src/preset/preset_sd.h"    // porta MAX_PRESET, PRESET_NAME_LEN
 
-// ========================== NOMI PRESET ==========================
-extern char presetNamesA[MAX_preset][MAX_timbrA];
-extern char presetNamesB[MAX_preset][MAX_timbrB];
+// Indici correnti (0..29)
+extern int presetNumA;
+extern int presetNumB;
+
 
 // ========================== VARIABILI DROPDOWN E RENAME ==========================
 extern int preset_visible_count;
@@ -181,6 +176,8 @@ extern const lv_img_dsc_t img_slider_oriz_knob;
 extern const lv_img_dsc_t img_arc_bg;
 extern const lv_img_dsc_t img_arc_indic;
 extern const lv_img_dsc_t home;
+// ========================== DRUM PATTERN LABEL ==========================
+extern lv_obj_t *drum_pattern_label;
 
 // ========================== PROTOTIPI FUNZIONI ==========================
 void selPreset(byte chi, int idx);
@@ -202,8 +199,6 @@ void toast_show(const char *msg, lv_color_t c, uint32_t dur = TOAST_DUR);
 void log_add(const char *msg, lv_color_t c);
 void log_hide();
 void log_show();
-void save_bright();
-void load_bright();
 void set_bright(uint8_t v);
 void create_home();
 void create_page(const char *title);
@@ -270,13 +265,30 @@ extern lv_obj_t    *timeline_btn_play;
 extern bool         timeline_playing;
 extern lv_timer_t  *tdt;
 extern uint32_t     timeline_demo_ms;
-
-// ========================== ENVELOPE PLOTTER (VCA) ==========================
+// ========================== MIDI CONFIG ==========================
+extern int midi_channel_A;   // 1..16
+extern int midi_channel_B;   // 1..16
+extern int midi_channel_D;   // 1..16  (DRUM)
+extern int midi_split;   // 0..31  (0 = F3, indice nota piu' bassa)
+// ========================== EEPROM SETTINGS ==========================
+void load_all_settings();
+void save_all_settings();
+// ====================== ENVELOPE PLOTTER (VCA) =======================
 extern lv_obj_t           *env_chart_A;
 extern lv_obj_t           *env_chart_B;
 extern lv_chart_series_t  *env_serie_A;
 extern lv_chart_series_t  *env_serie_B;
+extern lv_chart_series_t  *env_serie_tgt_A;
+extern lv_chart_series_t  *env_serie_tgt_B;
+// ========================== KEYBOARD WIDGET ==========================
+#define KB_WHITE_KEYS  19
+#define KB_BLACK_KEYS  13
 
+extern lv_obj_t *kb_white[KB_WHITE_KEYS];
+extern lv_obj_t *kb_black[KB_BLACK_KEYS];
+extern int       kb_white_note[KB_WHITE_KEYS];
+extern int       kb_black_note[KB_BLACK_KEYS];
+extern lv_obj_t *keyboard_obj;
 void update_env_plot(bool isA);
 lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h);
 
@@ -284,5 +296,14 @@ void tl_set_buttons(int active);
 lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y);
 
 void update_timeline(uint32_t cur_ms, uint32_t tot_ms);
-
+// ========================== PRESET — API per la UI ==========================
+#include "src/preset/preset_sd.h"
+#include "src/preset/preset_cache.h"  
+ // <-- aggiunto per presetCacheClearAll()
+// Wrapper che la UI chiama. Le implementazioni stanno nel .ino e usano
+// il modulo src/preset/. Cosi' i file UI non devono includere
+// preset_transfer.h (evita include circolari).
+bool requestPresetLoad(int synth, int presetId);   // synth: 0=A, 1=B
+bool requestPresetSave(int synth, int presetId);
+void requestRenameApply(int synth, int presetId, const char *newName);
 #endif

@@ -1,8 +1,21 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
+//FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi
+/* Lud-WS-Display/
+├── Lud-WS-Display.ino
+├── globals.h
+├── preset_sd.h
+├── comunicazioni.h
+├── serial_protocol.h
+├── images.c
+├── images/
+└── src/
+    └── grafica/
+        ├── lvglGraf.h
+        ├── lvglGrafFunc.cpp
+        └── lvglPreset.cpp */
 /**
- add arc pot x 6
- ulti
- * LUD-WS - Display Versione 0.0.12
+ add env plotter 2 tracce
+ * LUD-WS - Display Versione 0.0.14
  * ============================================================
  * - aggiunto:
  
@@ -10,7 +23,6 @@
  * - Discovery MCU non bloccante, riavviabile da SET UP
  * - 6 arc/pot in Synth A/MOD (Data_Pot_1..6) con pallino rosso
  *   e label valore sotto l'arc
- 
  */
 #include <Arduino.h>
 #include <esp_display_panel.hpp>
@@ -21,10 +33,11 @@
 #include <EEPROM.h>
 #include <SD.h>
 
-// ========================== INCLUDE GLOBALE ==========================
+// ======== INCLUDE GLOBALE ================
 #include "globals.h"
-
-// ========================== DEFINIZIONI VARIABILI GLOBALI ==========================
+#define LWS_BAUD    1000000UL      // 1 Mbps — bus LWS
+// ============= DEFINIZIONI VARIABILI GLOBALI =======
+const char* last_version = "V.0.15";
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
 lv_obj_t *slider_objs[8] = {0};
@@ -37,17 +50,11 @@ struct ShapeData shape_data[2];
 lv_obj_t *mL=0, *mR=0, *mC=0;
 lv_timer_t *mt=0;
 float pkL=0, pkR=0, pkC=0;
-const char* last_version = "V.0.12";
 uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
 int presetNumB = 0;
-int timbrA[MAX_preset][MAX_timbrA];
-int timbrB[MAX_preset][MAX_timbrB];
-int tempTimbrA[MAX_timbrA];
-int tempTimbrB[MAX_timbrB];
-char presetNamesA[MAX_preset][MAX_timbrA];
-char presetNamesB[MAX_preset][MAX_timbrB];
+
 int preset_visible_count = 8;
 lv_obj_t *preset_dropdown_A = NULL;
 lv_obj_t *preset_dropdown_B = NULL;
@@ -80,6 +87,20 @@ lv_obj_t          *env_chart_A = nullptr;
 lv_obj_t          *env_chart_B = nullptr;
 lv_chart_series_t *env_serie_A = nullptr;
 lv_chart_series_t *env_serie_B = nullptr;
+lv_chart_series_t *env_serie_tgt_A = nullptr;
+lv_chart_series_t *env_serie_tgt_B = nullptr;
+int midi_channel_A = 1;
+int midi_channel_B = 2;
+int midi_channel_D = 3;
+int midi_split = 0;
+lv_obj_t *kb_white[KB_WHITE_KEYS] = {0};
+lv_obj_t *kb_black[KB_BLACK_KEYS] = {0};
+int       kb_white_note[KB_WHITE_KEYS];
+int       kb_black_note[KB_BLACK_KEYS];
+lv_obj_t *keyboard_obj = nullptr;
+lv_obj_t *drum_pattern_label = nullptr;
+volatile bool    preset_ack_received = false;
+volatile uint8_t preset_ack_status   = 0;
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
     {"SAW", CAT_WF},  {"SAW8", CAT_WF}, {"TRI", CAT_WF},
@@ -97,10 +118,48 @@ WaveDef WAVE_DEFS[NUM_WAVES] = {
 bool sd_init();
 
 // ========================== INCLUDE HEADER ==========================
-#include "lvglGraf.h"
-#include "preset_sd.h"
+#include "src/grafica/lvglGraf.h"
 #include "comunicazioni.h"
+#include "src/preset/preset_sd.h"           // (già dentro globals.h, se hai fatto la patch)
+#include "src/preset/preset_cache.h"
+#include "src/preset/preset_transfer.h"     // contiene sendBlobToVoice, loadPresetToVoice, ecc.
+#include "src/preset/preset_ui.h"
+// =========================================================================
+// PRESET — Wrapper per la UI
+// =========================================================================
 
+bool requestPresetLoad(int synth, int presetId) {
+    if (synth == 0) {
+        // SynthA: carica su tutte le voci (Poly). Se sei in MultiMono,
+        // chiama loadPresetSynthA_MultiMono(map) al posto di questa.
+        return loadPresetSynthA_Poly((uint8_t)presetId);
+    } else {
+        return loadPresetSynthB((uint8_t)presetId);
+    }
+}
+
+bool requestPresetSave(int synth, int presetId) {
+    if (synth == 0) {
+        // Salva la cache della voce 0 (la UI del Display rappresenta
+        // una sola voce alla volta in modalità Poly).
+        return savePresetA(0, (uint8_t)presetId);
+    } else {
+        return savePresetB((uint8_t)presetId);
+    }
+}
+
+void requestRenameApply(int synth, int presetId, const char *newName) {
+    if (newName == nullptr) return;
+    if (synth == 0) {
+        strncpy(nome_presetA[presetId], newName, PRESET_NAME_LEN - 1);
+        nome_presetA[presetId][PRESET_NAME_LEN - 1] = '\0';
+        savePresetNamesToSD(0);
+    } else {
+        strncpy(nome_presetB[presetId], newName, PRESET_NAME_LEN - 1);
+        nome_presetB[presetId][PRESET_NAME_LEN - 1] = '\0';
+        savePresetNamesToSD(1);
+    }
+}
 // ========================== SD CARD ==========================
 bool sd_init() {
     SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
@@ -115,19 +174,30 @@ bool sd_init() {
 // ========================== SEL PRESET ==========================
 void selPreset(byte chi, int idx) {
     if (chi == 0) {
-        for (int i = 0; i < MAX_timbrA; i++) tempTimbrA[i] = timbrA[idx][i];
-    }
-    if (chi == 1) {
-        for (int i = 0; i < MAX_timbrB; i++) tempTimbrB[i] = timbrB[idx][i];
+        // SynthA: carica preset idx su tutte le voci (Poly)
+        loadPresetSynthA_Poly((uint8_t)idx);
+    } else if (chi == 1) {
+        // SynthB
+        loadPresetSynthB((uint8_t)idx);
     }
 }
-
+void reset_GT911(){
+		pinMode(18, OUTPUT);   // GT911 INT
+digitalWrite(18, LOW); // seleziona indirizzo 0x5D (o HIGH per 0x14)
+pinMode(38, OUTPUT);   // GT911 RST
+digitalWrite(38, LOW);
+delay(50);
+digitalWrite(38, HIGH);
+delay(100);
+}
 // ========================== SETUP ==========================
 void setup() {
     Serial.begin(115200);
-    Serial1.begin(115200, SERIAL_8N1, 18, 17);
+reset_GT911();
+
+    Serial1.begin(LWS_BAUD, SERIAL_8N1, 18, 17);
     EEPROM.begin(EEPROM_SIZE);
-    load_bright();
+  load_all_settings();
     bool sd_ok = sd_init();
 
     randomSeed(analogRead(0));
@@ -176,22 +246,21 @@ void setup() {
     lvgl_port_unlock();
 
     // Log + caricamento preset da SD
-    if (sd_ok) {
+       if (sd_ok) {
         log_add("SD: OK", lv_color_hex(0x00FF00));
-        if (!loadAllFromSD()) {
-            log_add("Preset non trovati, creazione default...", lv_color_hex(0xFFAA00));
-            initPresetValues();
-            saveAllToSD();
-            log_add("Preset default creati e salvati", lv_color_hex(0x00FF00));
-        } else {
-            log_add("Preset caricati da SD", lv_color_hex(0x00FF00));
-        }
-        update_preset_dropdown_options();
-        update_all_targets();
+
+        // Inizializza struttura cartelle + nomi preset (30 per A e B)
+        init_sd();
+
+        // Cache locale vuota all'avvio
+        presetCacheClearAll();
+
+        log_add("Preset pronti", lv_color_hex(0x00FF00));
     } else {
         log_add("SD: ERRORE", lv_color_hex(0xFF0000));
     }
-
+// Chiedi al Teensy il pattern drum corrente
+send_param_update(ID_TEENSY, 'Q', 0);
     // Boot messages
     log_add("LUD WS avviato", lv_color_hex(0x00FF00));
     char b[16];
@@ -216,9 +285,11 @@ void loop() {
     lv_timer_handler();
     delay(5);
 
-    // Auto-hide del log: solo se discovery conclusa
-    if (g.log_v && !g.err && !discovery_active() && millis() - g.log_t > LOG_TIMEOUT) {
+   // Auto-hide del log: dopo LOG_TIMEOUT (2000 ms), anche per gli errori
+    // Non nasconde durante la discovery, per non perdere messaggi utili.
+    if (g.log_v && !discovery_active() && millis() - g.log_t > LOG_TIMEOUT) {
         log_hide();
+        g.err = 0;   // reset del flag, così il prossimo errore può auto-nascondersi
     }
 
     // Auto-hide del toast

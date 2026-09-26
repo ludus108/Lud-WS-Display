@@ -41,6 +41,36 @@ static const uint8_t LWS_END2 = '!';
 #define CMD_MIDI_CC     'c'   // [cc,value]                   MIDI Control Change
 #define CMD_MIDI_NOTE   'n'   // [onoff,pitch,velocity]       MIDI Note On/Off
 #define CMD_MIDI_BEND   'b'   // [bend_i32_le]                MIDI Pitch Bend
+#define CMD_DRUM_PATTERN 'W'   // [ptn_num][name...]  Teensy -> Display
+// =========================================================================
+// CMD ESTESI per SynthA (voci)
+// =========================================================================
+// Parametri per-voce
+#define CMD_PARAM_VOCE   'V'   // [target][voice][key][value]         (4B)
+#define CMD_PARAM_I32    'I'   // [target][key][i32_le]               (6B)
+#define CMD_PARAM_I32_V  'J'   // [target][voice][key][i32_le]        (7B)
+
+// MIDI estesi con voice E target (per la cascata)
+#define CMD_MIDI_NOTE_V  'N'   // [target][voice][onoff][pitch][vel]  (5B)
+#define CMD_MIDI_BEND_V  'M'   // [target][voice][bend_i32_le]        (6B)
+#define CMD_MIDI_CC_V    'K'   // [target][voice][cc][value]          (4B)
+// =========================================================================
+// CMD PRESET TRANSFER
+// =========================================================================
+// Il Display invia un preset in chunk. Il target risponde con ACK finale.
+//
+// NB: 'j' (minuscola) e 'Q' (maiuscola) sono stati scelti per evitare
+// collisioni con CMD_MIDI_BEND='b' e CMD_MIDI_CC_V='K'.
+// =========================================================================
+#define CMD_PRESET_BEGIN       'j'   // [target][voice][id][len_lo][len_hi]
+#define CMD_PRESET_CHUNK       'h'   // [target][voice][off_lo][off_hi][data...]
+#define CMD_PRESET_END         'e'   // [target][voice][crc8]
+#define CMD_PRESET_ACK         'a'   // [target][voice][status]
+#define CMD_PRESET_READ        'r'   // [target][voice][id]
+#define CMD_PRESET_DUMP_BEGIN  'Q'   // [voice][len_lo][len_hi]
+#define CMD_PRESET_DUMP_CHUNK  'L'   // [voice][off_lo][off_hi][data...]
+#define CMD_PRESET_DUMP_END    'O'   // [voice][crc8]
+
 
 // ---------------- CRC-8/ATM (poly 0x07, init 0x00) ----------------
 inline uint8_t lws_crc8_update(uint8_t crc, uint8_t b) {
