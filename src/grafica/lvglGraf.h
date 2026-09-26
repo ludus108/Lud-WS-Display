@@ -13,7 +13,7 @@ void submenu(lv_obj_t *p);
 lv_obj_t* meter(lv_obj_t *p, int x, int y, int w, int h, const char *label, bool inv);
 void update_meters();
 void stop_meters();
-
+void slider_plain(lv_obj_t *p, int x, int y, const char *l, int idx, lv_color_t active_color, lv_color_t passed_color);
 // ========================== LOG / TOAST ==========================
 void log_show();
 void log_hide();
@@ -54,7 +54,7 @@ void      tl_set_buttons(int active);
 // ========================== ENVELOPE PLOTTER ==========================
 lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h, bool isA);
 void      update_env_plot(bool isA);
-
+void env_plot_draw(lv_obj_t *chart, lv_chart_series_t *serie, int vA, int vD, int vS, int vR);
 // ========================== PAGINE ==========================
 void create_home();
 void create_page(const char *title);

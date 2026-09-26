@@ -1,35 +1,23 @@
 // ============================================================
-// lvglGrafFunc.cpp - UI principale: widget, plotter, timeline,
-//                    pot container, pagine, eventi
+// lvglGrafCore.cpp — Widget riutilizzabili + utility grafiche
 // ============================================================
 #include "globals.h"
 #include "lvglGraf.h"
+#include "lvglGraf_internal.h"
 #include <Arduino.h>
 #include <math.h>
-#include "lvgl_v8_port.h"   // per lvgl_port_lock/unlock
+#include "lvgl_v8_port.h"
 #include "src/preset/preset_ui.h"
-// ========================== COSTANTI LOCALI ==========================
+
 #define TL_ACTIVE_OPA  70
 #define TL_IDLE_OPA      0
 #define ENV_POINTS     60
-// UI index  →  firmware value
-// 0 SAW     →  0 SAW
-// 1 SAW8    →  4 OCT-SAW
-// 2 TRI     →  3 TRI
-// 3 SQR     →  2 SQR
-// 4 SINE    →  1 SINE
-// 5 FM1     →  5 FM1
-// 6 FM2     →  6 FM2
-// 7 FM3     →  7 FM3
-// 8 NOISE   →  8 NOISE
-static const uint8_t ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8};
-// ========================== STATICHE LOCALI ==========================
-static void disc_btn_click(lv_event_t *e) {
-    (void)e;
-    discover_request_restart();
-}
 
-// ========================== WIDGET DI BASE ==========================
+const uint8_t ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8};
+
+// ============================================================
+// 1) WIDGET DI BASE
+// ============================================================
 void btn(lv_obj_t *p, const char *l, int x, int y, int w, int h, lv_color_t c, int id) {
     lv_obj_t *b = lv_btn_create(p);
     lv_obj_set_size(b, w, h); lv_obj_set_pos(b, x, y);
@@ -46,9 +34,9 @@ void btn(lv_obj_t *p, const char *l, int x, int y, int w, int h, lv_color_t c, i
     lv_obj_add_event_cb(b, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)id);
 }
 
-void home_btn(lv_obj_t *p, int id) {
+static lv_obj_t* home_btn_at(lv_obj_t *p, int id, int x, int y) {
     lv_obj_t *b = lv_btn_create(p);
-    lv_obj_set_size(b, 90, 90); lv_obj_set_pos(b, 680, 360);
+    lv_obj_set_size(b, 90, 90); lv_obj_set_pos(b, x, y);
     lv_obj_set_style_bg_color(b, lv_color_hex(0x1A1A2E), 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
     lv_obj_set_style_radius(b, 8, 0);
@@ -58,9 +46,16 @@ void home_btn(lv_obj_t *p, int id) {
     lv_img_set_src(img, &home);
     lv_obj_center(img);
     lv_obj_add_event_cb(b, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)id);
+    return b;
 }
 
-// ========================== SLIDER VERTICALE ==========================
+void home_btn(lv_obj_t *p, int id) {
+    home_btn_at(p, id, 10, 360);
+}
+
+// ============================================================
+// 2) SLIDER VERTICALE + H_SLIDER (DCO)
+// ============================================================
 void slider(lv_obj_t *p, int x, int y, const char *l, int idx,
             lv_color_t active_color, lv_color_t passed_color) {
     lv_obj_t *c = lv_obj_create(p);
@@ -108,7 +103,57 @@ void slider(lv_obj_t *p, int x, int y, const char *l, int idx,
     last[idx] = 127;
 }
 
-// ========================== SLIDER ORIZZONTALE SHAPE ==========================
+// ============================================================
+// Slider "plain" — identico a slider() ma SENZA freccina/arrow.
+// Usato per gli slider ADSR su pagine dove il valore è controllato
+// solo dal touch (nessun pot esterno).
+// ============================================================
+void slider_plain(lv_obj_t *p, int x, int y, const char *l, int idx,
+                  lv_color_t active_color, lv_color_t passed_color) {
+    (void)passed_color;   // non usato senza meccanismo di crossing
+
+    lv_obj_t *c = lv_obj_create(p);
+    lv_obj_set_size(c, 48, 242); lv_obj_set_pos(c, x, y);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(c, 0, 0);
+    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_set_style_clip_corner(c, 0, 0);
+
+    lv_obj_t *s = lv_slider_create(c);
+    lv_obj_set_size(s, 48, 212);
+    lv_obj_align(s, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_slider_set_range(s, 0, 255);
+    lv_slider_set_value(s, 127, LV_ANIM_OFF);
+    slider_objs[idx] = s;
+    slider_base_x[idx] = x;
+    slider_base_y[idx] = y;
+
+    lv_obj_set_style_bg_img_src(s, &img_slider_track, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_src(s, &img_slider_indicator, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_recolor(s, active_color, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_recolor_opa(s, (sliderColorDepth * 255) / 100, LV_PART_INDICATOR);
+
+    lv_obj_set_style_bg_img_src(s, &img_slider_knob, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_width(s, 45, LV_PART_KNOB);
+    lv_obj_set_style_height(s, 30, LV_PART_KNOB);
+
+    lv_obj_t *lb = lv_label_create(c);
+    lv_label_set_text(lb, l);
+    lv_obj_set_style_text_color(lb, lv_color_hex(0xFFA500), 0);
+    lv_obj_set_style_text_font(lb, &lv_font_montserrat_18, 0);
+    lv_obj_align_to(lb, s, LV_ALIGN_OUT_TOP_MID, 0, -10);
+    sd[idx] = {lb, idx};
+    lv_obj_add_event_cb(s, eslider, LV_EVENT_VALUE_CHANGED, &sd[idx]);
+
+    // Nessuna freccina
+    arr[idx] = nullptr;
+    crs[idx] = false;
+    last[idx] = 127;
+}
+
 void h_slider(lv_obj_t *p, int id) {
     const char *title = (id == SRC_A) ? "DCO A" : "DCO B";
     lv_obj_t *title_lbl = lv_label_create(p);
@@ -143,7 +188,8 @@ void h_slider(lv_obj_t *p, int id) {
         lv_obj_set_style_text_color(cat_label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_text_font(cat_label, &lv_font_montserrat_24, 0);
         lv_obj_center(cat_label);
-        lv_obj_add_event_cb(cat_btn, ecat_btn, LV_EVENT_CLICKED, (void*)(uintptr_t)(id * 10 + i));
+        lv_obj_add_event_cb(cat_btn, ecat_btn, LV_EVENT_CLICKED,
+                            (void*)(uintptr_t)(id * 10 + i));
     }
 
     int list_y = cat_y + cat_btn_h + 20;
@@ -182,7 +228,8 @@ void h_slider(lv_obj_t *p, int id) {
     lv_obj_set_style_border_width(chart, 1, 0);
     lv_obj_set_style_border_color(chart, lv_color_hex(0x666666), 0);
     lv_chart_set_div_line_count(chart, 0, 0);
-    lv_chart_series_t *serie = lv_chart_add_series(chart, lv_color_hex(0xFFFF00), LV_CHART_AXIS_PRIMARY_Y);
+    lv_chart_series_t *serie = lv_chart_add_series(chart, lv_color_hex(0xFFFF00),
+                                                   LV_CHART_AXIS_PRIMARY_Y);
     shape_data[id-1].chart = chart;
     shape_data[id-1].serie = serie;
     update_plotter_by_wave(id);
@@ -262,7 +309,9 @@ void h_slider(lv_obj_t *p, int id) {
     }
 }
 
-// ========================== PLOTTER E GRIGLIA ==========================
+// ============================================================
+// 3) PLOTTER / GRIGLIA / WAVEFORM
+// ============================================================
 void grid_btn_click(lv_event_t *e) {
     int id = (int)(uintptr_t)lv_event_get_user_data(e);
     int synth_id = id >> 8;
@@ -280,7 +329,6 @@ void grid_btn_click(lv_event_t *e) {
     int cat = shape_data[idx].current_cat;
 
     if (synth_id == SRC_A) {
-        // SynthA: indice globale 0..24 (già gestito dal firmware SynthA)
         int global_idx;
         switch (cat) {
             case CAT_WF: global_idx = btn_idx; break;
@@ -289,24 +337,14 @@ void grid_btn_click(lv_event_t *e) {
             default:     global_idx = btn_idx; break;
         }
         g.wa = global_idx;
-        // TODO: send to SynthA (voce, K_WAVEFORM)
     } else {
-        // SynthB: mapping UI → firmware
-        // - Categoria WF: applica ui2fw_wave[]
-        // - Categoria FM: wave_B è 0..7 (FM1..FM8), coincide con UI FM_ITEMS
-        // - Categoria AM: wave_B è 0..7, coincide con UI AM_ITEMS
         uint8_t fwWave;
-        if (cat == CAT_WF) {
-            fwWave = (btn_idx < 9) ? ui2fw_wave[btn_idx] : 0;
-        } else {
-            fwWave = (uint8_t)btn_idx;   // FM/AM: 0..7 diretto
-        }
-
-        g.wb = btn_idx;                            // UI cache (per plotter)
-        uiSetParamB_U8('w', fwWave);               // wave_B
-        uiSetParamB_U8('m', (uint8_t)cat);         // wave_mode_B (assicura coerenza)
+        if (cat == CAT_WF) fwWave = (btn_idx < 9) ? ui2fw_wave[btn_idx] : 0;
+        else               fwWave = (uint8_t)btn_idx;
+        g.wb = btn_idx;
+        uiSetParamB_U8('w', fwWave);
+        uiSetParamB_U8('m', (uint8_t)cat);
     }
-
     update_plotter_by_wave(synth_id);
 }
 
@@ -337,7 +375,8 @@ void populate_grid(lv_obj_t *container, const char *items, int selected_idx, int
             lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
             lv_obj_center(label);
             grid_btns[idx][count] = btn;
-            lv_obj_add_event_cb(btn, grid_btn_click, LV_EVENT_CLICKED, (void*)(uintptr_t)(count | (synth_id << 8)));
+            lv_obj_add_event_cb(btn, grid_btn_click, LV_EVENT_CLICKED,
+                (void*)(uintptr_t)(count | (synth_id << 8)));
             count++;
         }
         if (*end == '\n') start = end + 1;
@@ -351,7 +390,8 @@ void populate_grid(lv_obj_t *container, const char *items, int selected_idx, int
     }
 }
 
-void update_wave_plot(lv_obj_t *chart, lv_chart_series_t *serie, uint8_t shape_val, int wave_index) {
+void update_wave_plot(lv_obj_t *chart, lv_chart_series_t *serie,
+                      uint8_t shape_val, int wave_index) {
     if (wave_index == WF_SAW_INDEX || wave_index == WF_S8W_INDEX)
         lv_chart_set_series_color(chart, serie, lv_color_hex(0xFFFF00));
     else if (wave_index == WF_SQU_INDEX)
@@ -403,14 +443,16 @@ void update_plotter_by_wave(int synth_id) {
     update_wave_plot(d->chart, d->serie, shape_val, wave_idx);
 }
 
-// ========================== LED DI CATEGORIA ==========================
+// ============================================================
+// 4) LED E COLORI
+// ============================================================
 void update_leds(lv_obj_t **leds, int active_cat) {
     for (int i = 0; i < 3; i++) {
-        lv_obj_set_style_bg_color(leds[i], (i == active_cat) ? lv_color_hex(0x00FF00) : lv_color_hex(0x333333), 0);
+        lv_obj_set_style_bg_color(leds[i],
+            (i == active_cat) ? lv_color_hex(0x00FF00) : lv_color_hex(0x333333), 0);
     }
 }
 
-// ========================== CAMBIO COLORE INDICATORI ==========================
 void update_slider_color(int idx, bool active) {
     if (idx < 0 || idx > 7) return;
     lv_obj_t *slider = slider_objs[idx];
@@ -431,12 +473,15 @@ void update_slider_color(int idx, bool active) {
 void update_shape_slider_color(int synth_id, bool active) {
     lv_obj_t *slider = (synth_id == SRC_A) ? g.shape_slider_A : g.shape_slider_B;
     if (!slider) return;
-    lv_color_t target = active ? lv_color_hex(COLOR_SHAPE_SLIDER_ACTIVE) : lv_color_hex(COLOR_SHAPE_SLIDER_PASSED);
+    lv_color_t target = active ? lv_color_hex(COLOR_SHAPE_SLIDER_ACTIVE)
+                               : lv_color_hex(COLOR_SHAPE_SLIDER_PASSED);
     lv_obj_set_style_bg_img_recolor(slider, target, LV_PART_INDICATOR);
     lv_obj_set_style_bg_img_recolor_opa(slider, (sliderColorDepth * 255) / 100, LV_PART_INDICATOR);
 }
 
-// ========================== ARC ==========================
+// ============================================================
+// 5) ARC + POT CONTAINER
+// ============================================================
 void earc_changed(lv_event_t *e) {
     lv_obj_t *arc = lv_event_get_target(e);
     int idx = (int)(uintptr_t)lv_event_get_user_data(e);
@@ -452,7 +497,6 @@ void earc_changed(lv_event_t *e) {
 
     if (g.arc_arrow[idx] && g.arc_obj[idx] &&
         lv_obj_is_valid(g.arc_arrow[idx]) && lv_obj_is_valid(g.arc_obj[idx])) {
-
         if (!g.arc_crossed[idx]) {
             bool crossed = (prev < target && cur >= target) ||
                            (prev > target && cur <= target) ||
@@ -460,10 +504,12 @@ void earc_changed(lv_event_t *e) {
             if (crossed) {
                 g.arc_crossed[idx] = true;
                 lv_obj_add_flag(g.arc_arrow[idx], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_arc_color(g.arc_obj[idx], lv_color_hex(COLOR_ARC_PASSED), LV_PART_INDICATOR);
+                lv_obj_set_style_arc_color(g.arc_obj[idx],
+                    lv_color_hex(COLOR_ARC_PASSED), LV_PART_INDICATOR);
             } else {
                 lv_obj_clear_flag(g.arc_arrow[idx], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_arc_color(g.arc_obj[idx], lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
+                lv_obj_set_style_arc_color(g.arc_obj[idx],
+                    lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
             }
         }
     }
@@ -528,11 +574,9 @@ void arc_with_image(lv_obj_t *parent, int idx, int x, int y, int w, int h, const
         lv_obj_clear_flag(dot, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_arc_color(arc, lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
     }
-
     lv_obj_add_event_cb(arc, earc_changed, LV_EVENT_VALUE_CHANGED, (void*)(uintptr_t)idx);
 }
 
-// ========================== POT CONTAINER ==========================
 lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y) {
     const int arc_w   = 80;
     const int arc_h   = 80;
@@ -555,12 +599,13 @@ lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y) {
         int px = i * (arc_w + gap);
         arc_with_image(cont, i, px, pad_top, arc_w, arc_h, pnames[i]);
     }
-
     pot_container = cont;
     return cont;
 }
 
-// ========================== TIMELINE ==========================
+// ============================================================
+// 6) TIMELINE
+// ============================================================
 static void format_time(uint32_t ms, char *buf, size_t buflen) {
     uint32_t total_s = ms / 1000;
     uint32_t m = total_s / 60;
@@ -701,7 +746,6 @@ void update_timeline(uint32_t cur_ms, uint32_t tot_ms) {
     timeline_total_ms = tot_ms;
 
     char buf[16];
-
     if (timeline_label_cur && lv_obj_is_valid(timeline_label_cur)) {
         format_time(cur_ms, buf, sizeof(buf));
         lv_label_set_text(timeline_label_cur, buf);
@@ -721,7 +765,6 @@ void update_timeline(uint32_t cur_ms, uint32_t tot_ms) {
         if (fill_w < 1 && pct > 0.0f) fill_w = 1;
         lv_obj_set_width(timeline_bar_fill, fill_w);
     }
-
     if (timeline_cursor && lv_obj_is_valid(timeline_cursor) &&
         timeline_bar_bg && lv_obj_is_valid(timeline_bar_bg)) {
         int bg_x = lv_obj_get_x(timeline_bar_bg);
@@ -730,17 +773,30 @@ void update_timeline(uint32_t cur_ms, uint32_t tot_ms) {
     }
 }
 
-// ========================== SUBMENU ==========================
+// ============================================================
+// 7) SUBMENU (DCO/VCF/MOD/VCA/DLY)
+// ============================================================
 void submenu(lv_obj_t *p) {
     lv_obj_add_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_set_style_clip_corner(p, 0, 0);
-    const char *n[] = {"DCO","VCF","MOD","VCA"};
-    lv_color_t cols[] = {lv_color_hex(0x00FF00), lv_color_hex(0xCC3300), lv_color_hex(0x0099FF), lv_color_hex(0xFFCC33)};
-    for (int i=0; i<4; i++) btn(p, n[i], 30+i*155, 360, 120, 90, cols[i], 10+i);
-    home_btn(p, -1);
+
+    home_btn_at(p, -1, 30, 360);
+
+    const char *n[] = {"DCO","VCF","MOD","VCA","DLY"};
+    lv_color_t cols[] = {
+        lv_color_hex(0x00FF00),   // DCO
+        lv_color_hex(0xCC3300),   // VCF
+        lv_color_hex(0x0099FF),   // MOD
+        lv_color_hex(0xFFCC33),   // VCA
+        lv_color_hex(0xBB88FF)    // DLY
+    };
+    for (int i = 0; i < 5; i++)
+        btn(p, n[i], 135 + i * 130, 360, 115, 90, cols[i], 10 + i);
 }
 
-// ========================== METER ==========================
+// ============================================================
+// 8) METER
+// ============================================================
 lv_obj_t* meter(lv_obj_t *p, int x, int y, int w, int h, const char *label, bool inv) {
     lv_obj_t *c = lv_obj_create(p);
     lv_obj_set_size(c, w, h); lv_obj_set_pos(c, x, y);
@@ -807,7 +863,9 @@ void stop_meters() {
     mL=mR=mC=0; pkL=pkR=pkC=0;
 }
 
-// ========================== LOG E TOAST ==========================
+// ============================================================
+// 9) LOG / TOAST
+// ============================================================
 void log_show() { if (g.log_f) { lv_obj_clear_flag(g.log_f, LV_OBJ_FLAG_HIDDEN); g.log_v = 1; } }
 void log_hide() { if (g.log_f) { lv_obj_add_flag(g.log_f, LV_OBJ_FLAG_HIDDEN); g.log_v = 0; } }
 
@@ -847,7 +905,33 @@ void toast_show(const char *msg, lv_color_t c, uint32_t dur) {
     g.toast_t = millis() + dur;
 }
 
-// ========================== EEPROM ==========================
+void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h) {
+    g.log_f = lv_obj_create(parent);
+    lv_obj_set_size(g.log_f, w, h);
+    lv_obj_set_pos(g.log_f, x, y);
+    lv_obj_set_style_bg_color(g.log_f, lv_color_hex(0x0A0A0A), 0);
+    lv_obj_set_style_border_width(g.log_f, 2, 0);
+    lv_obj_set_style_border_color(g.log_f, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_radius(g.log_f, 4, 0);
+    lv_obj_clear_flag(g.log_f, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(g.log_f, LV_OBJ_FLAG_HIDDEN);
+
+    g.log_c = lv_obj_create(g.log_f);
+    lv_obj_set_size(g.log_c, w - 20, h - 20);
+    lv_obj_set_pos(g.log_c, 10, 10);
+    lv_obj_set_style_bg_color(g.log_c, lv_color_hex(0x0A0A0A), 0);
+    lv_obj_set_style_border_width(g.log_c, 0, 0);
+    lv_obj_set_style_pad_all(g.log_c, 5, 0);
+    lv_obj_set_style_pad_row(g.log_c, 3, 0);
+    lv_obj_set_flex_flow(g.log_c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(g.log_c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_scrollbar_mode(g.log_c, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(g.log_c, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+// ============================================================
+// 10) EEPROM BRIGHTNESS
+// ============================================================
 void set_bright(uint8_t v) {
     g.bright = constrain(v, 0, 100);
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, map(g.bright, 0, 100, 0, 1023));
@@ -868,7 +952,9 @@ void save_bright() {
     toast_show(b, lv_color_hex(0x00FF00), TOAST_DUR);
 }
 
-// ========================== RESET FRECCINE ==========================
+// ============================================================
+// 11) RESET FRECCINE
+// ============================================================
 void reset_arrows() {
     for (int i = 0; i < MAX_SLIDERS; i++) {
         crs[i] = 0;
@@ -900,10 +986,9 @@ void reset_arrows() {
         if (g.arc_obj[i] && lv_obj_is_valid(g.arc_obj[i])) {
             if (g.arc_arrow[i] && lv_obj_is_valid(g.arc_arrow[i])) {
                 lv_obj_clear_flag(g.arc_arrow[i], LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_arc_color(g.arc_obj[i], lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
-            } else {
-                g.arc_arrow[i] = NULL;
-            }
+                lv_obj_set_style_arc_color(g.arc_obj[i],
+                    lv_color_hex(COLOR_ARC_ACTIVE), LV_PART_INDICATOR);
+            } else g.arc_arrow[i] = NULL;
         } else {
             g.arc_obj[i]   = NULL;
             g.arc_arrow[i] = NULL;
@@ -914,130 +999,9 @@ void reset_arrows() {
     toast_show("Freccine ripristinate!", lv_color_hex(0x66AAFF), TOAST_DUR);
 }
 
-/* void wave_shape(int id, int src) {
-    const char *sn = (src == SRC_A) ? "Synth A" : "Synth B";
-    char b[60]; snprintf(b, 60, "[%s] Selezionato: %s", sn, WAVE_DEFS[id].name);
-    log_add(b, lv_color_hex(0x66AAFF));
-} */
-
-// ========================== LOG WIDGET ==========================
-void create_log_widget(lv_obj_t *parent, int x, int y, int w, int h) {
-    g.log_f = lv_obj_create(parent);
-    lv_obj_set_size(g.log_f, w, h);
-    lv_obj_set_pos(g.log_f, x, y);
-    lv_obj_set_style_bg_color(g.log_f, lv_color_hex(0x0A0A0A), 0);
-    lv_obj_set_style_border_width(g.log_f, 2, 0);
-    lv_obj_set_style_border_color(g.log_f, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_radius(g.log_f, 4, 0);
-    lv_obj_clear_flag(g.log_f, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(g.log_f, LV_OBJ_FLAG_HIDDEN);
-
-    g.log_c = lv_obj_create(g.log_f);
-    lv_obj_set_size(g.log_c, w - 20, h - 20);
-    lv_obj_set_pos(g.log_c, 10, 10);
-    lv_obj_set_style_bg_color(g.log_c, lv_color_hex(0x0A0A0A), 0);
-    lv_obj_set_style_border_width(g.log_c, 0, 0);
-    lv_obj_set_style_pad_all(g.log_c, 5, 0);
-    lv_obj_set_style_pad_row(g.log_c, 3, 0);
-    lv_obj_set_flex_flow(g.log_c, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(g.log_c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_scrollbar_mode(g.log_c, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_add_flag(g.log_c, LV_OBJ_FLAG_SCROLLABLE);
-}
-// ========================== PRESET LABEL (riutilizzabile) ==========================
-// Crea la label con il nome del preset attivo accanto al titolo della pagina.
-// - title_lbl : puntatore al titolo esistente (es. "SYNTH A", "VCF A").
-//               Se NULL, la label va a coordinate fisse.
-// - isA       : true per Synth A, false per Synth B.
-// Assegna anche preset_label_A / preset_label_B per update_preset_labels().
-static lv_obj_t* create_preset_label(lv_obj_t *parent, lv_obj_t *title_lbl, bool isA) {
-    lv_obj_t *info = lv_label_create(parent);
-    char buf[64];
-    if (isA) snprintf(buf, sizeof(buf), "Pn%d %s", presetNumA+1, nome_presetA[presetNumA]);
-    else     snprintf(buf, sizeof(buf), "Pn%d %s", presetNumB+1, nome_presetB[presetNumB]);
-    lv_label_set_text(info, buf);
-    lv_obj_set_style_text_color(info, lv_color_hex(0xFFFFFF), 0);   // BIANCO
-    lv_obj_set_style_text_font(info, &lv_font_montserrat_24, 0);    // font grande
-    if (title_lbl) lv_obj_align_to(info, title_lbl, LV_ALIGN_OUT_RIGHT_MID, 30, 0);
-    else           lv_obj_align(info, LV_ALIGN_TOP_LEFT, 250, 8);
-    if (isA) preset_label_A = info;
-    else     preset_label_B = info;
-    return info;
-}
-// ========================== HOME ==========================
-void create_home() {
-    pendingPresetA = pendingPresetB = -1;
-    if (blink_timer) { lv_timer_del(blink_timer); blink_timer = NULL; blink_state = false; }
-    close_rename_window();
-    if (g.play) { stop_meters(); g.play = 0; }
-    if (tdt) { lv_timer_del(tdt); tdt = nullptr; timeline_demo_ms = 0; }
-    if (g.page) { lv_obj_del(g.page); g.page = 0; }
-    g.synth = 0; g.err = g.log_v = g.toast_v = 0;
-    g.log_c = g.log_f = g.toast = 0;
-    for (int i=0; i<MAX_SLIDERS; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
-    g.shape_arrow_A = g.shape_arrow_B = 0;
-    g.shape_slider_A = g.shape_slider_B = 0;
-    for (int i = 0; i < MAX_ARCS; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
-    pot_container = NULL;
-    preset_dropdown_A = preset_dropdown_B = NULL;
-    preset_label_A = preset_label_B = NULL;
-    timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
-    timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
-    timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
-    timeline_playing  = false;
-    timeline_demo_ms  = 0;
-    env_chart_A = env_chart_B = nullptr;
-    env_serie_A = env_serie_B = nullptr;
-    env_serie_tgt_A = env_serie_tgt_B = nullptr;
-	keyboard_obj = nullptr;
-for (int i = 0; i < KB_WHITE_KEYS; i++) kb_white[i] = nullptr;
-for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
-drum_pattern_label = nullptr;
-
-    lv_obj_t *m = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
-    lv_obj_set_style_radius(m, 0, 0);
-    lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_border_width(m, 0, 0);
-    lv_obj_clear_flag(m, LV_OBJ_FLAG_SCROLLABLE);
-    g.page = m;
-
-    lv_obj_t *t1 = lv_label_create(m);
-    lv_label_set_text(t1, "LUD-WS");
-    lv_obj_set_style_text_font(t1, &lv_font_montserrat_40, 0);
-    lv_obj_set_style_text_color(t1, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(t1, LV_ALIGN_TOP_LEFT, 10, 10);
-    lv_obj_t *t2 = lv_label_create(m);
-    lv_label_set_text(t2, last_version);
-    lv_obj_set_style_text_font(t2, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_text_color(t2, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_align_to(t2, t1, LV_ALIGN_OUT_BOTTOM_LEFT, 0, -5);
-
-    lv_obj_t *sc = lv_obj_create(m);
-    lv_obj_set_size(sc, 180, 50);
-    lv_obj_align(sc, LV_ALIGN_TOP_RIGHT, -20, 20);
-    lv_obj_set_style_bg_color(sc, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_border_width(sc, 0, 0);
-    lv_obj_clear_flag(sc, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *sl = lv_slider_create(sc);
-    lv_obj_set_size(sl, 120, 10);
-    lv_obj_align(sl, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_slider_set_range(sl, 0, 100);
-    lv_slider_set_value(sl, g.bright, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(0x999999), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(0x666666), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(sl, lv_color_hex(0x333333), LV_PART_KNOB);
-    lv_obj_set_style_radius(sl, 5, LV_PART_MAIN | LV_PART_INDICATOR);
-    lv_obj_add_event_cb(sl, ebright, LV_EVENT_VALUE_CHANGED, 0);
-
-    create_log_widget(m, 50, 97, 700, 240);
-
-    const char *n[] = {"PLAY","SYNTH A","SYNTH B","DRUM","SET UP"};
-    lv_color_t cols[] = {lv_color_hex(0x00FF00), lv_color_hex(0xCC3300), lv_color_hex(0x0099FF), lv_color_hex(0xFFCC33), lv_color_hex(0x999999)};
-    for (int i=0; i<5; i++) btn(m, n[i], 30+i*155, 360, 120, 90, cols[i], i);
-}
-
-// ========================== ENVELOPE PLOTTER ==========================
+// ============================================================
+// 12) ENVELOPE PLOTTER
+// ============================================================
 lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h, bool isA) {
     lv_obj_t *chart = lv_chart_create(parent);
     lv_obj_set_size(chart, w, h);
@@ -1066,7 +1030,6 @@ lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h, bool isA
 
     if (isA) { env_chart_A = chart; env_serie_A = serie; env_serie_tgt_A = serie_tgt; }
     else     { env_chart_B = chart; env_serie_B = serie; env_serie_tgt_B = serie_tgt; }
-
     return chart;
 }
 
@@ -1139,49 +1102,28 @@ void update_env_plot(bool isA) {
                 lv_chart_set_next_value(chart, serie_tgt, pts_tgt[i]);
         }
     }
-
     lv_chart_refresh(chart);
 }
-static void midi_split_cb(lv_event_t *e) {
-    lv_obj_t *dd = lv_event_get_target(e);
-    midi_split = lv_dropdown_get_selected(dd);
-    update_keyboard_colors();    // <-- ridisegna la tastiera
-   /*  char buf[48];
-    snprintf(buf, sizeof(buf), "SPLIT = %d", midi_split);
-    log_add(buf, lv_color_hex(0x66AAFF)); */
-}
-// ========================== MIDI CONFIG EVENTS ==========================
-static void midi_ch_a_cb(lv_event_t *e) {
-    lv_obj_t *dd = lv_event_get_target(e);
-    midi_channel_A = lv_dropdown_get_selected(dd) + 1;
-    char buf[40];
-    snprintf(buf, sizeof(buf), "SynthA MIDI CH = %d", midi_channel_A);
-    log_add(buf, lv_color_hex(0x66AAFF));
+
+// ============================================================
+// Disegna un envelope ADSR su chart già esistente.
+// (usato dal plotter VCF-B; l'ENV_POINTS è quello locale al file)
+// ============================================================
+void env_plot_draw(lv_obj_t *chart, lv_chart_series_t *serie,
+                   int vA, int vD, int vS, int vR) {
+    if (!chart || !lv_obj_is_valid(chart) || !serie) return;
+    int pts[ENV_POINTS];
+    compute_env_points(vA, vD, vS, vR, pts, ENV_POINTS);
+    for (int i = 0; i < ENV_POINTS; i++) {
+        lv_chart_set_next_value(chart, serie, pts[i]);
+    }
+    lv_chart_refresh(chart);
 }
 
-static void midi_ch_b_cb(lv_event_t *e) {
-    lv_obj_t *dd = lv_event_get_target(e);
-    midi_channel_B = lv_dropdown_get_selected(dd) + 1;
-    char buf[40];
-    snprintf(buf, sizeof(buf), "SynthB MIDI CH = %d", midi_channel_B);
-    log_add(buf, lv_color_hex(0x66AAFF));
-}
-static void midi_ch_d_cb(lv_event_t *e) {
-    lv_obj_t *dd = lv_event_get_target(e);
-    midi_channel_D = lv_dropdown_get_selected(dd) + 1;
-    char buf[40];
-    snprintf(buf, sizeof(buf), "DRUM MIDI CH = %d", midi_channel_D);
-    log_add(buf, lv_color_hex(0x66AAFF));
-}
-// ========================== KEYBOARD WIDGET ==========================
-// Tastiera 32 tasti (F3..C6). Layout pianistico:
-//   19 tasti bianchi, 13 tasti neri sovrapposti.
-// Colori:
-//   indice <= midi_split  ->  giallo leggero
-//   indice >  midi_split  ->  azzurro leggero
+// ============================================================
+// 13) KEYBOARD
+// ============================================================
 lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h) {
-    // Note index (0..31):
-    //   0=F3, 1=F#3, 2=G3, ... 31=C6
     static const int white_notes[KB_WHITE_KEYS] = {
         0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26, 28, 30, 31
     };
@@ -1202,7 +1144,6 @@ lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h) {
     const int bk_w = 11;
     const int bk_h = (h * 60) / 100;
 
-    // --- Tasti bianchi ---
     for (int i = 0; i < KB_WHITE_KEYS; i++) {
         int x0 = (i * w) / KB_WHITE_KEYS;
         int x1 = ((i + 1) * w) / KB_WHITE_KEYS;
@@ -1217,8 +1158,6 @@ lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h) {
         kb_white[i]      = k;
         kb_white_note[i] = white_notes[i];
     }
-
-    // --- Tasti neri sovrapposti ---
     for (int i = 0; i < KB_BLACK_KEYS; i++) {
         int wi       = black_after_white[i];
         int boundary = ((wi + 1) * w) / KB_WHITE_KEYS;
@@ -1241,10 +1180,8 @@ lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h) {
 }
 
 void update_keyboard_colors() {
-    // Tasti bianchi: giallo tenue / azzurro tenue
     lv_color_t w_yellow = lv_color_hex(0xFFFFAA);
     lv_color_t w_blue   = lv_color_hex(0xAADDFF);
-    // Tasti neri: varianti scure per mantenere leggibilità
     lv_color_t b_yellow = lv_color_hex(0x886600);
     lv_color_t b_blue   = lv_color_hex(0x224466);
 
@@ -1260,537 +1197,4 @@ void update_keyboard_colors() {
         lv_obj_set_style_bg_color(kb_black[i], c, 0);
         lv_obj_set_style_bg_opa(kb_black[i], LV_OPA_COVER, 0);
     }
-}
-// ========================== PAGINE SECONDARIE ==========================
-void create_page(const char *title) {
-    pendingPresetA = pendingPresetB = -1;
-    if (blink_timer) { lv_timer_del(blink_timer); blink_timer = NULL; blink_state = false; }
-    close_rename_window();
-    if (g.play && strcmp(title, "PLAY") != 0) { stop_meters(); g.play = 0; }
-    if (g.page) { lv_obj_del(g.page); g.page = 0; }
-    g.log_c = g.log_f = g.toast = 0; g.toast_v = 0;
-    for (int i=0; i<MAX_SLIDERS; i++) { arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0; }
-    g.shape_arrow_A = g.shape_arrow_B = 0;
-    g.shape_slider_A = g.shape_slider_B = 0;
-    for (int i = 0; i < MAX_ARCS; i++){ g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;}
-    pot_container = NULL;
-    preset_dropdown_A = preset_dropdown_B = NULL;
-    preset_label_A = preset_label_B = NULL;
-    timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
-    timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
-    timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
-    timeline_playing  = false;
-    timeline_demo_ms  = 0;
-    env_chart_A = env_chart_B = nullptr;
-    env_serie_A = env_serie_B = nullptr;
-    env_serie_tgt_A = env_serie_tgt_B = nullptr;
-	drum_pattern_label = nullptr;
-	for (int i = 0; i < KB_WHITE_KEYS; i++) kb_white[i] = nullptr;
-for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
-	
-	
-    if (tdt) { lv_timer_del(tdt); tdt = nullptr; }
-    lv_obj_t *m = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
-    lv_obj_set_style_radius(m, 0, 0);
-    lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_border_width(m, 0, 0);
-    lv_obj_clear_flag(m, LV_OBJ_FLAG_SCROLLABLE);
-    g.page = m;
-
-    lv_obj_t *t = NULL;
-    if (strncmp(title, "DCO", 3) != 0) {
-        t = lv_label_create(m);
-        lv_label_set_text(t, title);
-        lv_obj_set_style_text_font(t, &lv_font_montserrat_32, 0);
-        lv_obj_set_style_text_color(t, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(t, LV_ALIGN_TOP_LEFT, 10, 5);
-    }
-
-    if (strcmp(title, "PLAY") == 0) {
-        g.play = 1;
-        int w = 22, h = 150;
-
-        mL = meter(m, 685, 10, w, h, "L", 0);
-        mR = meter(m, 709, 10, w, h, "R", 0);
-        mC = meter(m, 750, 10, w, h, "C", 1);
-        if (!mt) mt = lv_timer_create([](lv_timer_t*){ update_meters(); }, 33, 0);
-
-        create_timeline(m, 50, 220, 700, 40);
-        create_timeline_controls(m, 50, 265);
-
-        timeline_playing = false;
-        timeline_demo_ms = 0;
-        update_timeline(0, 60000);
-        tl_set_buttons(1);
-
-        if (!tdt) {
-            tdt = lv_timer_create([](lv_timer_t*){
-                if (timeline_playing) {
-                    timeline_demo_ms += 100;
-                    if (timeline_demo_ms > 60000) timeline_demo_ms = 0;
-                    update_timeline(timeline_demo_ms, 60000);
-                }
-            }, 100, 0);
-        }
-
-        home_btn(m, -1);
-    }
-    else if (strcmp(title, "SYNTH A") == 0 || strcmp(title, "SYNTH B") == 0) {
-        g.synth = title;
-        int id = (strcmp(title, "SYNTH A") == 0) ? 0 : 1;
-        const char *lbl = (id == 0) ? "Preset A" : "Preset B";
-        int *ptr = (id == 0) ? &presetNumA : &presetNumB;
-         char (*names)[PRESET_NAME_LEN] = (id == 0) ? nome_presetA : nome_presetB;
-        create_preset_selector(m, 450, 2, lbl, ptr, names);
-        update_preset_dropdown_options();
-		
-		        create_preset_label(m, t, (id == 0));
-
-        lv_obj_t *rn = lv_btn_create(m);
-        lv_obj_set_size(rn, 100, 40);
-        lv_obj_set_pos(rn, 450, 110);
-        lv_obj_set_style_bg_color(rn, lv_color_hex(0x000000), 0);
-        lv_obj_t *rn_lbl = lv_label_create(rn);
-        lv_label_set_text(rn_lbl, "Rinomina");
-        lv_obj_set_style_text_color(rn_lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_center(rn_lbl);
-        lv_obj_add_event_cb(rn, rename_btn_click, LV_EVENT_CLICKED, NULL);
-        submenu(m);
-        update_all_targets();
-    }
-    else if (strncmp(title, "DCO", 3) == 0) {
-    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-    int id   = isA ? SRC_A : SRC_B;
-    h_slider(m, id);
-    create_preset_label(m, NULL, isA);   // t è NULL in DCO, posizione fissa (250, 8)
-    home_btn(m, -2);
-}
- else if (strncmp(title, "MOD", 3) == 0) {
-    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-    Serial.printf("[MOD] title='%s' synth=%s isA=%d\n",
-                  title, g.synth ? g.synth : "(null)", isA);
-    if (isA) {
-        create_pot_container(m, 100, 100);
-        Serial.printf("[MOD] pot_container=%p\n", (void*)pot_container);
-		   create_preset_label(m, NULL, isA);   // t è NULL in DCO, posizione fissa (250, 8)
-    }
-    home_btn(m, -2);
-}
-    else if (strcmp(title, "SET UP") == 0) {
-        lv_obj_t *btn1 = lv_btn_create(m);
-        lv_obj_set_size(btn1, 160, 70);
-        lv_obj_set_pos(btn1, 50, 80);
-        lv_obj_set_style_bg_color(btn1, lv_color_hex(0xCC3333), 0);
-        lv_obj_set_style_bg_color(btn1, lv_color_hex(0x992222), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(btn1, 10, 0);
-        lv_obj_set_style_border_width(btn1, 2, 0);
-        lv_obj_set_style_border_color(btn1, lv_color_hex(0xFF8888), 0);
-        lv_obj_t *lbl1 = lv_label_create(btn1);
-        lv_label_set_text(lbl1, "init SD");
-        lv_obj_set_style_text_color(lbl1, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(lbl1, &lv_font_montserrat_20, 0);
-        lv_obj_center(lbl1);
-        lv_obj_add_event_cb(btn1, init_sd_btn_click, LV_EVENT_CLICKED, NULL);
-
-        lv_obj_t *btn_disc = lv_btn_create(m);
-        lv_obj_set_size(btn_disc, 220, 70);
-        lv_obj_set_pos(btn_disc, 240, 80);
-        lv_obj_set_style_bg_color(btn_disc, lv_color_hex(0x1A4B6B), 0);
-        lv_obj_set_style_bg_color(btn_disc, lv_color_hex(0x123348), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(btn_disc, 10, 0);
-        lv_obj_set_style_border_width(btn_disc, 2, 0);
-        lv_obj_set_style_border_color(btn_disc, lv_color_hex(0x44AAFF), 0);
-        lv_obj_t *lbl_disc = lv_label_create(btn_disc);
-        lv_label_set_text(lbl_disc, "Riavvia Discovery");
-        lv_obj_set_style_text_color(lbl_disc, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(lbl_disc, &lv_font_montserrat_20, 0);
-        lv_obj_center(lbl_disc);
-        lv_obj_add_event_cb(btn_disc, disc_btn_click, LV_EVENT_CLICKED, NULL);
-
-        // --- Pulsante "Salva SetUp" ---
-        lv_obj_t *btn_save = lv_btn_create(m);
-        lv_obj_set_size(btn_save, 200, 70);
-        lv_obj_set_pos(btn_save, 480, 80);
-        lv_obj_set_style_bg_color(btn_save, lv_color_hex(0x1A6B4A), 0);
-        lv_obj_set_style_bg_color(btn_save, lv_color_hex(0x0F4A2E), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(btn_save, 10, 0);
-        lv_obj_set_style_border_width(btn_save, 2, 0);
-        lv_obj_set_style_border_color(btn_save, lv_color_hex(0x00FF88), 0);
-        lv_obj_t *lbl_save = lv_label_create(btn_save);
-        lv_label_set_text(lbl_save, "Salva SetUp");
-        lv_obj_set_style_text_color(lbl_save, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(lbl_save, &lv_font_montserrat_20, 0);
-        lv_obj_center(lbl_save);
-        lv_obj_add_event_cb(btn_save, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)21);
-
-        // --- Pulsante "MIDI" (stessa posizione dei bottoni submenu synth) ---
-        lv_obj_t *btn_midi = lv_btn_create(m);
-        lv_obj_set_size(btn_midi, 120, 90);
-        lv_obj_set_pos(btn_midi, 30, 360);
-        lv_obj_set_style_bg_color(btn_midi, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_bg_color(btn_midi, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(btn_midi, 8, 0);
-        lv_obj_set_style_border_width(btn_midi, 3, 0);
-        lv_obj_set_style_border_color(btn_midi, lv_color_hex(0x44FF88), 0);
-        lv_obj_t *lbl_midi = lv_label_create(btn_midi);
-        lv_label_set_text(lbl_midi, "MIDI");
-        lv_obj_set_style_text_color(lbl_midi, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(lbl_midi, &lv_font_montserrat_18, 0);
-        lv_obj_center(lbl_midi);
-        lv_obj_add_event_cb(btn_midi, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)20);
-
-        home_btn(m, -1);
-    }
-	
-	  else if (strcmp(title, "MIDI") == 0) {
-    // ============ RIGA SynthA: [SynthA] [CH] [dd] [SPLIT] [dd] ============
-    lv_obj_t *lbl_a = lv_label_create(m);
-    lv_label_set_text(lbl_a, "SynthA");
-    lv_obj_set_style_text_color(lbl_a, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl_a, &lv_font_montserrat_24, 0);
-    lv_obj_set_pos(lbl_a, 40, 105);
-        // Tastiera 32 tasti: x allineato al dropdown SPLIT, y tra top e dropdown
-        create_keyboard(m, 380, 5, 360, 85);
-    // CH (colonna 1)
-    lv_obj_t *lbl_ch_a = lv_label_create(m);
-    lv_label_set_text(lbl_ch_a, "CH");
-    lv_obj_set_style_text_color(lbl_ch_a, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_set_style_text_font(lbl_ch_a, &lv_font_montserrat_18, 0);
-    lv_obj_set_pos(lbl_ch_a, 160, 112);
-
-    lv_obj_t *dd_a = lv_dropdown_create(m);
-    lv_obj_set_size(dd_a, 80, 45);
-    lv_obj_set_pos(dd_a, 200, 100);
-    lv_obj_set_style_bg_color(dd_a, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_border_width(dd_a, 2, 0);
-    lv_obj_set_style_border_color(dd_a, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_color(dd_a, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(dd_a, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_pad_left(dd_a, 8, 0);
-    lv_dropdown_set_options(dd_a, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16");
-    lv_dropdown_set_selected(dd_a, (midi_channel_A >= 1 && midi_channel_A <= 16) ? midi_channel_A - 1 : 0);
-    lv_obj_add_event_cb(dd_a, midi_ch_a_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    // SPLIT (colonna 2)
-    lv_obj_t *lbl_sp_a = lv_label_create(m);
-    lv_label_set_text(lbl_sp_a, "SPLIT");
-    lv_obj_set_style_text_color(lbl_sp_a, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_set_style_text_font(lbl_sp_a, &lv_font_montserrat_18, 0);
-    lv_obj_set_pos(lbl_sp_a, 310, 112);
-
-    lv_obj_t *dd_sp_a = lv_dropdown_create(m);
-    lv_obj_set_size(dd_sp_a, 100, 45);
-    lv_obj_set_pos(dd_sp_a, 380, 100);
-    lv_obj_set_style_bg_color(dd_sp_a, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_border_width(dd_sp_a, 2, 0);
-    lv_obj_set_style_border_color(dd_sp_a, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_color(dd_sp_a, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(dd_sp_a, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_pad_left(dd_sp_a, 8, 0);
-    lv_dropdown_set_options(dd_sp_a,
-        "F3\nF#3\nG3\nG#3\nA3\nA#3\nB3\n"
-        "C4\nC#4\nD4\nD#4\nE4\nF4\nF#4\nG4\nG#4\nA4\nA#4\nB4\n"
-        "C5\nC#5\nD5\nD#5\nE5\nF5\nF#5\nG5\nG#5\nA5\nA#5\nB5\nC6");
-    lv_dropdown_set_selected(dd_sp_a, (midi_split <= 31) ? midi_split : 0);
-    lv_obj_add_event_cb(dd_sp_a, midi_split_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    // ============ RIGA SynthB ============
-    lv_obj_t *lbl_b = lv_label_create(m);
-    lv_label_set_text(lbl_b, "SynthB");
-    lv_obj_set_style_text_color(lbl_b, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl_b, &lv_font_montserrat_24, 0);
-    lv_obj_set_pos(lbl_b, 40, 205);
-
-    lv_obj_t *lbl_ch_b = lv_label_create(m);
-    lv_label_set_text(lbl_ch_b, "CH");
-    lv_obj_set_style_text_color(lbl_ch_b, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_set_style_text_font(lbl_ch_b, &lv_font_montserrat_18, 0);
-    lv_obj_set_pos(lbl_ch_b, 160, 212);
-
-    lv_obj_t *dd_b = lv_dropdown_create(m);
-    lv_obj_set_size(dd_b, 80, 45);
-    lv_obj_set_pos(dd_b, 200, 200);
-    lv_obj_set_style_bg_color(dd_b, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_border_width(dd_b, 2, 0);
-    lv_obj_set_style_border_color(dd_b, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_color(dd_b, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(dd_b, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_pad_left(dd_b, 8, 0);
-    lv_dropdown_set_options(dd_b, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16");
-    lv_dropdown_set_selected(dd_b, (midi_channel_B >= 1 && midi_channel_B <= 16) ? midi_channel_B - 1 : 1);
-    lv_obj_add_event_cb(dd_b, midi_ch_b_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    // ============ RIGA DRUM ============
-    lv_obj_t *lbl_d = lv_label_create(m);
-    lv_label_set_text(lbl_d, "DRUM");
-    lv_obj_set_style_text_color(lbl_d, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl_d, &lv_font_montserrat_24, 0);
-    lv_obj_set_pos(lbl_d, 40, 305);
-
-    lv_obj_t *lbl_ch_d = lv_label_create(m);
-    lv_label_set_text(lbl_ch_d, "CH");
-    lv_obj_set_style_text_color(lbl_ch_d, lv_color_hex(0xAAAAAA), 0);
-    lv_obj_set_style_text_font(lbl_ch_d, &lv_font_montserrat_18, 0);
-    lv_obj_set_pos(lbl_ch_d, 160, 312);
-
-    lv_obj_t *dd_d = lv_dropdown_create(m);
-    lv_obj_set_size(dd_d, 80, 45);
-    lv_obj_set_pos(dd_d, 200, 300);
-    lv_obj_set_style_bg_color(dd_d, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_border_width(dd_d, 2, 0);
-    lv_obj_set_style_border_color(dd_d, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_color(dd_d, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(dd_d, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_pad_left(dd_d, 8, 0);
-    lv_dropdown_set_options(dd_d, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16");
-    lv_dropdown_set_selected(dd_d, (midi_channel_D >= 1 && midi_channel_D <= 16) ? midi_channel_D - 1 : 2);
-    lv_obj_add_event_cb(dd_d, midi_ch_d_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    home_btn(m, -1);
-}
-      else if (strcmp(title, "DRUM") == 0) {
-        // ---- Label pattern drum (aggiornata via LWS dal Teensy) ----
-        drum_pattern_label = lv_label_create(m);
-        lv_label_set_text(drum_pattern_label, "PTN --: --");
-        lv_obj_set_style_text_color(drum_pattern_label, lv_color_hex(0x00FFFF), 0);
-        lv_obj_set_style_text_font(drum_pattern_label, &lv_font_montserrat_32, 0);
-        lv_obj_set_pos(drum_pattern_label, 50, 80);
-
-        // (opzionale) etichetta statica sopra
-        lv_obj_t *lbl_h = lv_label_create(m);
-        lv_label_set_text(lbl_h, "Drum Pattern");
-        lv_obj_set_style_text_color(lbl_h, lv_color_hex(0xAAAAAA), 0);
-        lv_obj_set_style_text_font(lbl_h, &lv_font_montserrat_18, 0);
-        lv_obj_set_pos(lbl_h, 50, 55);
-
-        home_btn(m, -1);
-    }
-    else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
-    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-    lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE) : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
-    lv_color_t passed_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_PASSED) : lv_color_hex(COLOR_SLIDER_SYNTH_B_PASSED);
-    int base = (strncmp(title, "VCF", 3) == 0) ? 0 : 4;
-    const char *labels[] = {"A", "D", "S", "R"};
-    for (int i=0; i<4; i++) slider(m, 20 + i*80, 96, labels[i], base + i, active_color, passed_color);
-
-    if (base == 4) {
-        create_env_plot(m, 620, 116, 150, 100, isA);
-        update_env_plot(isA);
-    }
-
-    create_preset_label(m, t, isA);   // <-- NUOVO
-    home_btn(m, -2);
-}
-    else {
-        lv_obj_t *lb = lv_label_create(m);
-        lv_label_set_text_fmt(lb, "Contenuto di %s", title);
-        lv_obj_set_style_text_font(lb, &lv_font_montserrat_24, 0);
-        lv_obj_set_style_text_color(lb, lv_color_hex(0xAAAAAA), 0);
-        lv_obj_align(lb, LV_ALIGN_CENTER, 0, -40);
-        home_btn(m, -1);
-    }
-
-    create_log_widget(m, 50, 200, 600, 220);
-}
-
-// ========================== GESTORI EVENTI ==========================
-void eb(lv_event_t *e) {
-    int id = (int)(uintptr_t)lv_event_get_user_data(e);
-    if (g.play && (id == -1 || (id >= 0 && id < 5))) { stop_meters(); g.play = 0; }
-    if (id == -2) {
-        if (g.synth) { log_add("<- Torno al synth", lv_color_hex(0xFFFFFF)); lvgl_port_lock(-1); create_page(g.synth); lvgl_port_unlock(); }
-        else { log_add("<- HOME", lv_color_hex(0xFFFFFF)); lvgl_port_lock(-1); create_home(); lvgl_port_unlock(); }
-        return;
-    }
-    if (id == -1) { log_add("<- HOME", lv_color_hex(0xFFFFFF)); lvgl_port_lock(-1); create_home(); lvgl_port_unlock(); return; }
-    if (id == 5) { save_bright(); return; }
-    if (id >= 10 && id <= 13) {
-        const char *sub[] = {"DCO","VCF","MOD","VCA"};
-        char title[20];
-        if (g.synth) {
-            const char *sfx = (strcmp(g.synth, "SYNTH A") == 0) ? "A" : "B";
-            snprintf(title, 20, "%s %s", sub[id-10], sfx);
-        } else snprintf(title, 20, "%s", sub[id-10]);
-        log_add(title, lv_color_hex(0xFFFFFF));
-        lvgl_port_lock(-1); create_page(title); lvgl_port_unlock();
-        return;
-    }
-	    if (id == 21) {
-        save_all_settings();
-        return;
-    }
-	    if (id == 20) {
-        log_add("Apro: MIDI", lv_color_hex(0xFFFFFF));
-        lvgl_port_lock(-1);
-        create_page("MIDI");
-        lvgl_port_unlock();
-        return;
-    }
-    if (id >= 0 && id < 5) {
-        const char *pages[] = {"PLAY","SYNTH A","SYNTH B","DRUM","SET UP"};
-        char b[20]; snprintf(b, 20, "> Apro: %s", pages[id]);
-        log_add(b, lv_color_hex(0xFFFFFF));
-        lvgl_port_lock(-1); create_page(pages[id]); lvgl_port_unlock();
-    }
-}
-
-void ebright(lv_event_t *e) { set_bright(lv_slider_get_value(lv_event_get_target(e))); }
-
-void eslider(lv_event_t *e) {
-    SliderData *d = (SliderData*)lv_event_get_user_data(e);
-    int cur = lv_slider_get_value(lv_event_get_target(e));
-    int prev = last[d->idx];
-    int target = g.pre[d->idx];
-    lv_obj_t *a = arr[d->idx];
-    if (a && lv_obj_is_valid(a)) {
-        if (!crs[d->idx]) {
-            bool crossed = (prev < target && cur > target) ||
-                           (prev > target && cur < target) ||
-                           (prev == target && cur != target);
-            if (crossed) {
-                crs[d->idx] = 1;
-                lv_obj_add_flag(a, LV_OBJ_FLAG_HIDDEN);
-                update_slider_parameter(d->idx, cur);
-                if (d->label && lv_obj_is_valid(d->label))
-                    lv_obj_set_style_text_color(d->label, lv_color_hex(0xFFFFFF), 0);
-                if (slider_objs[d->idx] && lv_obj_is_valid(slider_objs[d->idx]))
-                    update_slider_color(d->idx, false);
-            } else {
-                lv_obj_clear_flag(a, LV_OBJ_FLAG_HIDDEN);
-                if (d->label && lv_obj_is_valid(d->label))
-                    lv_obj_set_style_text_color(d->label, lv_color_hex(0xFFA500), 0);
-                if (slider_objs[d->idx] && lv_obj_is_valid(slider_objs[d->idx]))
-                    update_slider_color(d->idx, true);
-            }
-        }
-    } else arr[d->idx] = 0;
-    last[d->idx] = cur;
-
-    if (d->idx >= 4 && d->idx <= 7) {
-        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-        update_slider_parameter(d->idx, cur);
-        update_env_plot(isA);
-    }
-}
-
-void ecat_btn(lv_event_t *e) {
-    int id = (int)(uintptr_t)lv_event_get_user_data(e);
-    int synth_id = id / 10;
-    int cat = id % 10;
-    int idx = (synth_id == SRC_A) ? 0 : 1;
-    ShapeData *d = &shape_data[idx];
-    if (!d->list) return;
-
-    d->current_cat = cat;
-    const char *items;
-    switch (cat) {
-        case CAT_WF: items = WF_ITEMS; break;
-        case CAT_FM: items = FM_ITEMS; break;
-        case CAT_AM: items = AM_ITEMS; break;
-        default:     items = WF_ITEMS; break;
-    }
-    d->list_items = items;
-    populate_grid(d->list, items, 0, synth_id);
-    update_leds(d->leds, cat);
-
-    if (synth_id == SRC_A) {
-        g.wa = (cat == CAT_WF) ? 0 : (cat == CAT_FM ? 9 : 17);
-        // TODO: send to SynthA (voce, K_MODE)
-    } else {
-        g.wb = 0;
-
-        // Cambio categoria → cambio mode + reset waveform alla prima della categoria
-        uiSetParamB_U8('m', (uint8_t)cat);   // wave_mode_B
-
-        uint8_t firstWave;
-        if (cat == CAT_WF) firstWave = ui2fw_wave[0];   // SAW → 0
-        else               firstWave = 0;               // FM1/AM1 → 0
-        uiSetParamB_U8('w', firstWave);     // wave_B
-    }
-
-    update_plotter_by_wave(synth_id);
-}
-
-void ehslider(lv_event_t *e) {
-    ShapeData *d = (ShapeData*)lv_event_get_user_data(e);
-    lv_obj_t *slider = lv_event_get_target(e);
-    int cur = lv_slider_get_value(slider);
-
-    if (d->id == SRC_A) {
-        g.shape_a = cur;
-        // TODO: send to SynthA (voce, K_MOD_IN_B)
-    } else {
-        g.shape_b = cur;
-
-        // Slider 0..100 → modInB 0..1023
-        int32_t modInB = map(cur, 0, 100, 0, 1023);
-        uiSetParamB_I32('i', modInB);       // shape_B
-    }
-
-    // --- Logica freccina/crossing (invariata) ---
-    int target = (d->id == SRC_A) ? g.pre_shape_A : g.pre_shape_B;
-    bool *crs_flag = (d->id == SRC_A) ? &g.shape_crs_A : &g.shape_crs_B;
-    int *last_val = (d->id == SRC_A) ? &g.shape_last_A : &g.shape_last_B;
-    lv_obj_t *arrow = (d->id == SRC_A) ? g.shape_arrow_A : g.shape_arrow_B;
-
-    if (arrow && lv_obj_is_valid(arrow)) {
-        if (!(*crs_flag)) {
-            bool crossed = (*last_val < target && cur > target) ||
-                           (*last_val > target && cur < target) ||
-                           (*last_val == target && cur != target);
-            if (crossed) {
-                *crs_flag = true;
-                lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
-                if (d->id == SRC_A && g.shape_slider_A && lv_obj_is_valid(g.shape_slider_A))
-                    update_shape_slider_color(SRC_A, false);
-                else if (d->id == SRC_B && g.shape_slider_B && lv_obj_is_valid(g.shape_slider_B))
-                    update_shape_slider_color(SRC_B, false);
-            } else {
-                lv_obj_clear_flag(arrow, LV_OBJ_FLAG_HIDDEN);
-                if (d->id == SRC_A && g.shape_slider_A && lv_obj_is_valid(g.shape_slider_A))
-                    update_shape_slider_color(SRC_A, true);
-                else if (d->id == SRC_B && g.shape_slider_B && lv_obj_is_valid(g.shape_slider_B))
-                    update_shape_slider_color(SRC_B, true);
-            }
-        }
-    } else {
-        if (d->id == SRC_A) g.shape_arrow_A = 0;
-        else                g.shape_arrow_B = 0;
-    }
-    *last_val = cur;
-
-    update_plotter_by_wave(d->id);
-}
-
-void elist(lv_event_t *e) {
-    int id = (int)(uintptr_t)lv_event_get_user_data(e);
-    lv_obj_t *list = lv_event_get_target(e);
-    int sel = lv_btnmatrix_get_selected_btn(list);
-    if (sel < 0) return;
-    int idx = (id == SRC_A) ? 0 : 1;
-    ShapeData *d = &shape_data[idx];
-    int cat = d->current_cat;
-    int global_idx;
-    switch(cat) {
-        case CAT_WF: global_idx = sel; break;
-        case CAT_FM: global_idx = 9 + sel; break;
-        case CAT_AM: global_idx = 17 + sel; break;
-        default: global_idx = sel; break;
-    }
-    if (id == SRC_A) g.wa = global_idx;
-    else g.wb = global_idx;
-
-    const char *text = lv_btnmatrix_get_btn_text(list, sel);
-    if (text) {
-        lv_obj_t *parent = lv_obj_get_parent(list);
-        lv_obj_t *label = lv_obj_get_child(parent, 0);
-        if (label) {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "Wave Shape: %s", text);
-            lv_label_set_text(label, buf);
-        }
-    }
-  //  wave_shape(global_idx, id);
-    update_plotter_by_wave(id);
 }

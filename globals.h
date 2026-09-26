@@ -59,14 +59,14 @@ extern struct WaveDef WAVE_DEFS[NUM_WAVES];
 // ========================== PRESET (INDIPENDENTI) ==========================
 
 
-enum paramA {
+enum paramA {//POLY 106
   wave_mode_A, wave_A, shape_A, shape_lev_A, shape_rate_A, lfo_pitch_lev_A,
   cutOff_A, res_A, vcf_lfo_A, vcf_env_A, vcf_ana_env_A,
   ana_ATTACK_A, ana_DECAY_A, ana_SUSTAIN_A, ana_RELEASE_A,
   vir_ATTACK_A, vir_DECAY_A, vir_SUSTAIN_A, vir_RELEASE_A,
   lfo_wave_A, lfo_rate_A, vca_vir_env_A, vca_lfo_A
 };
-enum paramB {
+enum paramB {// CHATTER BOX
   wave_mode_B, wave_B, shape_B, shape_lev_B, shape_rate_B, lfo_pitch_lev_B,
   vcf_mode_B, cutOff_1_B, cutOff_2_B, cutOff_3_B, res_B,
   vcf_lfo_B, vcf_env_B, vcf_Bna_env_B,

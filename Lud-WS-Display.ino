@@ -37,7 +37,7 @@
 #include "globals.h"
 #define LWS_BAUD    1000000UL      // 1 Mbps — bus LWS
 // ============= DEFINIZIONI VARIABILI GLOBALI =======
-const char* last_version = "V.0.14";
+const char* last_version = "V.0.15";
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
 lv_obj_t *slider_objs[8] = {0};
@@ -54,12 +54,7 @@ uint8_t sliderColorDepth = 50;
 
 int presetNumA = 0;
 int presetNumB = 0;
-/* int timbrA[MAX_preset][MAX_timbrA];
-int timbrB[MAX_preset][MAX_timbrB];
-int tempTimbrA[MAX_timbrA];
-int tempTimbrB[MAX_timbrB];
-char presetNamesA[MAX_preset][MAX_timbrA];
-char presetNamesB[MAX_preset][MAX_timbrB]; */
+
 int preset_visible_count = 8;
 lv_obj_t *preset_dropdown_A = NULL;
 lv_obj_t *preset_dropdown_B = NULL;
@@ -290,9 +285,11 @@ void loop() {
     lv_timer_handler();
     delay(5);
 
-    // Auto-hide del log: solo se discovery conclusa
-    if (g.log_v && !g.err && !discovery_active() && millis() - g.log_t > LOG_TIMEOUT) {
+   // Auto-hide del log: dopo LOG_TIMEOUT (2000 ms), anche per gli errori
+    // Non nasconde durante la discovery, per non perdere messaggi utili.
+    if (g.log_v && !discovery_active() && millis() - g.log_t > LOG_TIMEOUT) {
         log_hide();
+        g.err = 0;   // reset del flag, così il prossimo errore può auto-nascondersi
     }
 
     // Auto-hide del toast
