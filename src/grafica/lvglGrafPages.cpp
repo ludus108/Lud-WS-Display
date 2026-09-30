@@ -18,7 +18,13 @@ void reset_ui_pointers() {
     }
     g.shape_arrow_A  = g.shape_arrow_B  = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-
+	
+	       for (int i = 0; i < 2; i++) {
+        shape_data[i].cat_btn     = nullptr;
+        shape_data[i].cat_btn_lbl = nullptr;
+        shape_data[i].edit_btn    = nullptr;   // NUOVO
+    }
+	
     for (int i = 0; i < MAX_ARCS; i++) {
         g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;
     }
@@ -84,6 +90,40 @@ void reset_ui_pointers() {
         sB_vcfb_crossed[i] = false;
         for (int t = 0; t < VCF_TICK_COUNT; t++)  sB_vcfb_tick[i][t] = nullptr;
     }
+	    for (int i = 0; i < 4; i++) {
+        drum_sec_btn[i] = nullptr;
+        drum_sec_lbl[i] = nullptr;
+    }
+      for (int r = 0; r < DRUM_ROWS; r++) drum_row_meter[r] = nullptr;
+    drum_ptn_dd = nullptr;
+	    drum_fl_btn = nullptr;
+    drum_fl_lbl = nullptr;
+       // SONG
+    song_song_dd  = nullptr;
+    song_fln_dd   = nullptr;
+    song_page_lbl = nullptr;
+    for (int i = 0; i < 4; i++) {
+        song_sec_btn[i] = nullptr;
+        song_sec_lbl[i] = nullptr;
+    }
+       for (int r = 0; r < SONG_ROWS; r++)
+        for (int c = 0; c < SONG_COLS; c++) {
+            song_slot[r][c]             = nullptr;
+            song_slot_lbl[r][c]         = nullptr;
+            song_slot_kit_lbl[r][c]     = nullptr;
+            song_slot_num_lbl[r][c]     = nullptr;
+        }
+    song_sel_slot = -1;
+	    song_kit_dd = nullptr;
+		    rev_mode_btn = nullptr;
+    rev_mode_lbl = nullptr;
+    // rev_mode NON si resetta (persiste)
+	    rev_preset_dd = nullptr;
+    // rev_preset NON si resetta (persiste)
+	    kit_preset_dd = nullptr;
+    kit_rev_dd = nullptr;
+    for (int i = 0; i < 9; i++) kit_voice_dd[i] = nullptr;
+    // kit_cur_kit NON si resetta (persiste tra pagine)
 }
 
 void page_begin(const char *title) {
@@ -97,6 +137,7 @@ void page_begin(const char *title) {
         blink_state = false;
     }
     close_rename_window();
+	kit_close_rename_window();
 
     bool isHome = (title == nullptr);
     bool isPlay = (title && strcmp(title, "PLAY") == 0);
@@ -226,7 +267,7 @@ static void disc_btn_click(lv_event_t *e) {
     (void)e;
     discover_request_restart();
 }
-
+		  
 // ============================================================
 // CREATE PAGE
 // ============================================================
@@ -239,14 +280,18 @@ void create_page(const char *title) {
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
+	
+			  
     lv_obj_set_style_radius(m, 0, 0);
     lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
     lv_obj_set_style_border_width(m, 0, 0);
     lv_obj_clear_flag(m, LV_OBJ_FLAG_SCROLLABLE);
     g.page = m;
 
-    lv_obj_t *t = NULL;
-    if (strncmp(title, "DCO", 3) != 0) {
+        lv_obj_t *t = NULL;
+    if (strncmp(title, "DCO", 3) != 0
+        && strcmp(title, "SEQ")  != 0
+        && strcmp(title, "SONG") != 0) {
         t = lv_label_create(m);
         lv_label_set_text(t, title);
         lv_obj_set_style_text_font(t, &lv_font_montserrat_32, 0);
@@ -489,37 +534,100 @@ void create_page(const char *title) {
         lv_obj_add_event_cb(dd_d, midi_ch_d_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
         home_btn(m, -1);
-    }
+    }        // ---- PTN (centrato) ----
+     
     // ---------------- DRUM ----------------
     else if (strcmp(title, "DRUM") == 0) {
-        drum_pattern_label = lv_label_create(m);
+		  drum_pattern_label = lv_label_create(m);
         lv_label_set_text(drum_pattern_label, "PTN --");
         lv_obj_set_style_text_color(drum_pattern_label, lv_color_hex(0x00FFFF), 0);
         lv_obj_set_style_text_font(drum_pattern_label, &lv_font_montserrat_32, 0);
         if (t) lv_obj_align_to(drum_pattern_label, t, LV_ALIGN_OUT_RIGHT_MID, 30, 0);
-        else   lv_obj_set_pos(drum_pattern_label, 130, 5);
-
-        lv_obj_t *seq_btn = lv_btn_create(m);
+        else   lv_obj_set_pos(drum_pattern_label, 130, 5);       
+		
+		   lv_obj_t *seq_btn = lv_btn_create(m);
         lv_obj_set_size(seq_btn, 90, 90);
-        lv_obj_set_pos(seq_btn, 580, 360);
+        lv_obj_set_pos(seq_btn, 300, 360);
         lv_obj_set_style_bg_color(seq_btn, lv_color_hex(0x1A1A2E), 0);
         lv_obj_set_style_bg_color(seq_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
         lv_obj_set_style_radius(seq_btn, 8, 0);
         lv_obj_set_style_border_width(seq_btn, 3, 0);
         lv_obj_set_style_border_color(seq_btn, lv_color_hex(0x00AAFF), 0);
         lv_obj_t *seq_lbl = lv_label_create(seq_btn);
-        lv_label_set_text(seq_lbl, "SEQ");
+        lv_label_set_text(seq_lbl, "PTN");
         lv_obj_set_style_text_color(seq_lbl, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_text_font(seq_lbl, &lv_font_montserrat_18, 0);
         lv_obj_center(seq_lbl);
         lv_obj_add_event_cb(seq_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)30);
 
+        // ---- SONG (destra di PTN) ----
+        lv_obj_t *song_btn = lv_btn_create(m);
+        lv_obj_set_size(song_btn, 90, 90);
+        lv_obj_set_pos(song_btn, 410, 360);
+        lv_obj_set_style_bg_color(song_btn, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_bg_color(song_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(song_btn, 8, 0);
+        lv_obj_set_style_border_width(song_btn, 3, 0);
+        lv_obj_set_style_border_color(song_btn, lv_color_hex(0x00DD00), 0);
+        lv_obj_t *song_lbl = lv_label_create(song_btn);
+        lv_label_set_text(song_lbl, "SONG");
+        lv_obj_set_style_text_color(song_lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(song_lbl, &lv_font_montserrat_16, 0);
+        lv_obj_center(song_lbl);
+        lv_obj_add_event_cb(song_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)32);
+
+        // ---- KIT (arancione) ----
+        lv_obj_t *kit_btn = lv_btn_create(m);
+        lv_obj_set_size(kit_btn, 90, 90);
+        lv_obj_set_pos(kit_btn, 530, 360);
+        lv_obj_set_style_bg_color(kit_btn, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_bg_color(kit_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(kit_btn, 8, 0);
+        lv_obj_set_style_border_width(kit_btn, 3, 0);
+        lv_obj_set_style_border_color(kit_btn, lv_color_hex(0xFF8800), 0);
+        lv_obj_t *kit_lbl = lv_label_create(kit_btn);
+        lv_label_set_text(kit_lbl, "KIT");
+        lv_obj_set_style_text_color(kit_lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(kit_lbl, &lv_font_montserrat_18, 0);
+        lv_obj_center(kit_lbl);
+        lv_obj_add_event_cb(kit_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)33);
+
+        // ---- REV (rosso scuro) ----
+        lv_obj_t *rev_btn = lv_btn_create(m);
+        lv_obj_set_size(rev_btn, 90, 90);
+        lv_obj_set_pos(rev_btn, 640, 360);
+        lv_obj_set_style_bg_color(rev_btn, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_bg_color(rev_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(rev_btn, 8, 0);
+        lv_obj_set_style_border_width(rev_btn, 3, 0);
+        lv_obj_set_style_border_color(rev_btn, lv_color_hex(0xAA0000), 0);
+        lv_obj_t *rev_lbl = lv_label_create(rev_btn);
+        lv_label_set_text(rev_lbl, "REV");
+        lv_obj_set_style_text_color(rev_lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(rev_lbl, &lv_font_montserrat_18, 0);
+        lv_obj_center(rev_lbl);
+        lv_obj_add_event_cb(rev_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)34);
+
         home_btn(m, -1);
+		
+      
     }
     // ---------------- SEQ ----------------
     else if (strcmp(title, "SEQ") == 0) {
         if (t) lv_obj_set_pos(t, 10, 3);
         drum_seq_page_create(m, t);   // tutta la pagina SEQ in Modules
+    }
+	    // ---------------- SONG ----------------
+    else if (strcmp(title, "SONG") == 0) {
+        song_page_create(m);
+    }
+	      // ---------------- KIT ----------------
+    else if (strcmp(title, "KIT") == 0) {
+        kit_page_create(m);
+    }
+    // ---------------- REV ----------------
+    else if (strcmp(title, "REV") == 0) {
+        rev_page_create(m);
     }
     // ---------------- VCF / VCA ----------------
     else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
@@ -552,15 +660,17 @@ void create_page(const char *title) {
         lv_obj_set_style_pad_hor(frame_lbl, 8, 0);
         lv_obj_align(frame_lbl, LV_ALIGN_TOP_MID, 0, -20);   // sopra il bordo
 
-        // ---------- 4 slider dentro la cornice ----------
+              // ---------- 4 slider dentro la cornice ----------
         // 4 × 48 + 3 gap × 20 = 252 → start = (280 - 252) / 2 = 14
         const char *labels[] = {"A", "D", "S", "R"};
+        lv_color_t vcfb_slider_color = lv_color_hex(0x0022CC);   // blu VCF-B
+		
         for (int i = 0; i < 4; i++) {
             int sx = 14 + i * 68;
             if (!isA && base == 0) {
-                // VCF B: senza freccina
+                // VCF B: senza freccina, indicator blu
                 slider_plain(frame, sx, 26, labels[i],
-                             base + i, active_color, passed_color);
+                             base + i, vcfb_slider_color, vcfb_slider_color);
             } else {
                 // VCF A, VCA A/B: invariato
                 slider(frame, sx, 26, labels[i],
@@ -580,6 +690,15 @@ void create_page(const char *title) {
     else if (strcmp(title, "FX") == 0) {
         fx_page_create(m);
         home_btn(m, -1);
+    }
+	    // ---------------- FM EDIT ----------------
+    else if (strcmp(title, "FM Edit") == 0) {
+        lv_obj_t *lb = lv_label_create(m);
+        lv_label_set_text(lb, "FM Edit (work in progress)");
+        lv_obj_set_style_text_font(lb, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_color(lb, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_align(lb, LV_ALIGN_CENTER, 0, -40);
+        home_btn(m, -4);
     }
     // ---------------- DLY ----------------
     else if (strncmp(title, "DLY", 3) == 0) {
@@ -647,6 +766,21 @@ void eb(lv_event_t *e) {
         lvgl_port_lock(-1); create_page("SEQ"); lvgl_port_unlock();
         return;
     }
+	    if (id == 32) {
+        log_add("Apro: SONG", lv_color_hex(0xFFFFFF));
+        lvgl_port_lock(-1); create_page("SONG"); lvgl_port_unlock();
+        return;
+    }
+	    if (id == 33) {
+        log_add("Apro: KIT", lv_color_hex(0xFFFFFF));
+        lvgl_port_lock(-1); create_page("KIT"); lvgl_port_unlock();
+        return;
+    }
+    if (id == 34) {
+        log_add("Apro: REV", lv_color_hex(0xFFFFFF));
+        lvgl_port_lock(-1); create_page("REV"); lvgl_port_unlock();
+        return;
+    }
     if (id == 31) {
         send_param_update(ID_TEENSY, 'Y', 0);
         log_add("Pattern salvato -> Teensy", lv_color_hex(0x00FF00));
@@ -656,6 +790,19 @@ void eb(lv_event_t *e) {
     if (id == -3) {
         log_add("<- DRUM", lv_color_hex(0xFFFFFF));
         lvgl_port_lock(-1); create_page("DRUM"); lvgl_port_unlock();
+        return;
+    }
+	    // FM Edit → torna a DCO A/B
+    if (id == -4) {
+        if (g.synth) {
+            const char *sfx = (strcmp(g.synth, "SYNTH A") == 0) ? "A" : "B";
+            char title[16];
+            snprintf(title, sizeof(title), "DCO %s", sfx);
+            log_add("<- DCO", lv_color_hex(0xFFFFFF));
+            lvgl_port_lock(-1); create_page(title); lvgl_port_unlock();
+        } else {
+            lvgl_port_lock(-1); create_home(); lvgl_port_unlock();
+        }
         return;
     }
     if (id >= 0 && id < 6) {
@@ -748,6 +895,69 @@ void ecat_btn(lv_event_t *e) {
         uiSetParamB_U8('w', firstWave);
     }
     update_plotter_by_wave(synth_id);
+}
+
+// ============================================================
+// Bottone unico WF/FM/AM ciclico (DCO A/B)
+// Cicla: WF → FM → AM → WF, aggiorna testo, bordo e contenuto griglia.
+// ============================================================
+
+void ecat_cycle(lv_event_t *e) {
+    int synth_id = (int)(uintptr_t)lv_event_get_user_data(e);
+    int idx = (synth_id == SRC_A) ? 0 : 1;
+    ShapeData *d = &shape_data[idx];
+    if (!d->list) return;
+
+    int cat = (d->current_cat + 1) % 3;
+    d->current_cat = cat;
+
+    const char *items;
+    switch (cat) {
+        case CAT_WF: items = WF_ITEMS; break;
+        case CAT_FM: items = FM_ITEMS; break;
+        case CAT_AM: items = AM_ITEMS; break;
+        default:     items = WF_ITEMS; break;
+    }
+    d->list_items = items;
+    populate_grid(d->list, items, 0, synth_id);
+
+    uint32_t color; const char *name;
+    switch (cat) {
+        case CAT_FM: color = 0xFF8800; name = "FM"; break;
+        case CAT_AM: color = 0xAA44FF; name = "AM"; break;
+        default:     color = 0x00AAFF; name = "WF"; break;
+    }
+    if (d->cat_btn && lv_obj_is_valid(d->cat_btn))
+        lv_obj_set_style_border_color(d->cat_btn, lv_color_hex(color), 0);
+    if (d->cat_btn_lbl && lv_obj_is_valid(d->cat_btn_lbl))
+        lv_label_set_text(d->cat_btn_lbl, name);
+
+    // Mostra Edit solo in FM
+    if (d->edit_btn && lv_obj_is_valid(d->edit_btn)) {
+        if (cat == CAT_FM) lv_obj_clear_flag(d->edit_btn, LV_OBJ_FLAG_HIDDEN);
+        else               lv_obj_add_flag  (d->edit_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (synth_id == SRC_A) {
+        g.wa = (cat == CAT_WF) ? 0 : (cat == CAT_FM ? 9 : 17);
+    } else {
+        g.wb = 0;
+        uiSetParamB_U8('m', (uint8_t)cat);
+        uint8_t firstWave = (cat == CAT_WF) ? ui2fw_wave[0] : 0;
+        uiSetParamB_U8('w', firstWave);
+    }
+    update_plotter_by_wave(synth_id);
+}
+
+// ============================================================
+// Apri sotto-pagina "FM Edit"
+// ============================================================
+void fm_edit_btn_cb(lv_event_t *e) {
+    (void)e;
+    log_add("Apro: FM Edit", lv_color_hex(0xFFFFFF));
+    lvgl_port_lock(-1);
+    create_page("FM Edit");
+    lvgl_port_unlock();
 }
 
 void ehslider(lv_event_t *e) {

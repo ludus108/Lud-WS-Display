@@ -1,29 +1,74 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
 //FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi
-/* Lud-WS-Display/
-├── Lud-WS-Display.ino
-├── globals.h
-├── preset_sd.h
-├── comunicazioni.h
-├── serial_protocol.h
-├── images.c
-├── images/
-└── src/
-    └── grafica/
-        ├── lvglGraf.h
-        ├── lvglGrafFunc.cpp
-        └── lvglPreset.cpp */
-/**
- add env plotter 2 tracce
- * LUD-WS - Display Versione 0.0.14
- * ============================================================
- * - aggiunto:
- 
- * - Protocollo LWSv1 unificato (condiviso con Router e nodi)
- * - Discovery MCU non bloccante, riavviabile da SET UP
- * - 6 arc/pot in Synth A/MOD (Data_Pot_1..6) con pallino rosso
- *   e label valore sotto l'arc
- */
+// ============================================================
+// LUD-WS-Display — Versione 0.16
+// ============================================================
+// MODIFICHE SESSIONE 2026-09-30
+//
+// REFACTORING
+//  - lvglGrafModules.cpp diviso in 4 file:
+//      lvglGrafDrum.cpp   (DRUM/SEQ editing)
+//      lvglGrafSong.cpp   (SONG editor)
+//      lvglGrafVcfB.cpp   (VCF SynthB)
+//      lvglGrafFx.cpp     (FX / FV-1)
+//    + lvglGrafRev.cpp   (REV — nuovo)
+//    + lvglGrafKit.cpp   (KIT — nuovo)
+//    Il vecchio lvglGrafModules.cpp è .bak
+//
+// DRUM / SEQ (editing pattern)
+//  - Griglia spostata a y=0, bottoni spostati in basso (y=400)
+//  - Bottone "SEQ" rinominato "PTN"
+//  - Bottone "FL" verde (modalità FILL): griglia mostra fillArr
+//  - Dropdown PTN 1..16 / FLN 1..16 dinamico (no freccia)
+//  - Sezioni A/B/C/D con highlight
+//  - Celle quadrate, rettangolino 22px più stretto, centrato
+//  - Micro meter 22×24 con envelope (HOLD 100ms + DECAY 500ms)
+//  - Linee orizzontali grigio, verticali giallo (col 0, 8) / grigio (col 4, 12)
+//
+// DRUM / SONG (editor song)
+//  - Array songArr[16][3][256] (tipo/num/kit) + songLen[16]
+//  - Griglia 4×8 slot con paginazione (32 slot/pagina, 8 pagine)
+//  - Slot: label KIT n (top, 14pt) / A|B|C|D|FLN n (center) / num (bottom)
+//  - Dropdown SNG 1..16, KIT (NO KIT + 16 nomi), FLN 1..16, A/B/C/D
+//  - Paginazione ◄ ► + label N/M, +/− per add/remove slot (min 1)
+//  - Kit su slot 1 permanente; modificabile solo su altri slot
+//  - Linee orizzontali grigio, verticale giallo tra col 4 e 5
+//
+// DRUM / REV (riverbero)
+//  - 8 slider senza freccina, colorati per gruppo:
+//      PRED verde, SIZE azzurro, DAMP viola,
+//      CUT1/CUT2 rosso porpora, RES1/RES2 giallo, LEV rosso
+//  - Label nome top + valore bottom
+//  - Toggle SER/PAR in basso
+//  - Dropdown REV 1..16 collegato a revPresetArr[9][16]
+//  - Cambio preset → aggiorna slider + SER/PAR
+//
+// DRUM / KIT (editor kit)
+//  - Dropdown KIT (16 item "n Nome") + dropdown REV 1..16
+//  - 9 dropdown voci (BD/SD/HH/OH/H2/CLAP/PERC1/PERC2/PERC3)
+//    ciascuno elenca i set disponibili per la voce (estratti da lista.h)
+//  - Cambio KIT → aggiorna i 9+1 dropdown da kitArr[10][16]
+//  - Bottone RINOMINA: finestra modale con textarea + tastiera
+//  - kit_names[16][24] editabile in RAM (persistenza SD: TODO)
+//
+// DRUM / (pagina principale)
+//  - Layout: PTN+SONG centrati, KIT (arancione) + REV (rosso scuro) a destra
+//  - Sotto-pagine: KIT, REV
+//
+// FIX
+//  - Driver esp32 reinstallato (risolto link error objs.a)
+//  - Dropdown senza freccia: lv_dropdown_set_symbol(dd, NULL)
+//  - songLen da uint8_t a uint16_t
+//
+// TODO PRIORITARI
+//  - Sync array (seqArr/fillArr/songArr) Display <-> Teensy via LWS
+//  - Mute toggle (cmd 'M', 6 bitmask) in DRUM/SEQ
+//  - BPM + Swing in DRUM/SEQ (cmd 'b' 'W')
+//  - Pagina PLAY: play mode pattern/song, trigger fill, sezioni live
+//  - Persistenza kit_names su SD (/drum/kit_names.txt)
+//  - Mappatura LWS RES/EnvA/EnvV (VCF-B)
+//  - Python generator preset SynthB aggiornato
+// ============================================================
 #include <Arduino.h>
 #include <esp_display_panel.hpp>
 #include <math.h>
@@ -37,7 +82,7 @@
 #include "globals.h"
 #define LWS_BAUD    1000000UL      // 1 Mbps — bus LWS
 // ============= DEFINIZIONI VARIABILI GLOBALI =======
-const char* last_version = "V.0.15";
+const char* last_version = "V 0.0.16";
 struct GlobalData g;
 lv_obj_t *arr[8] = {0};
 lv_obj_t *slider_objs[8] = {0};

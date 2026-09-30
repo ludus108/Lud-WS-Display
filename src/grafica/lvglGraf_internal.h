@@ -25,7 +25,59 @@ extern const uint8_t ui2fw_wave[9];
 // ============================================================
 #define DRUM_ROWS 9
 #define DRUM_COLS 16
+// DRUM — SONG editor
+extern lv_obj_t *song_song_dd;
+extern lv_obj_t *song_fln_dd;
+extern lv_obj_t *song_sec_btn[4];
+extern lv_obj_t *song_sec_lbl[4];
+extern lv_obj_t *song_page_lbl;
+extern uint8_t   song_cur_song;
+extern uint8_t   song_cur_page;
+extern int       song_sel_slot;   // -1 = nessuno; altrimenti indice globale 0..255
+extern lv_obj_t *song_kit_dd;
+void song_page_create(lv_obj_t *parent);
+extern lv_obj_t *drum_fl_btn;
+extern lv_obj_t *drum_fl_lbl;
+extern uint8_t   drum_mode;
+extern uint8_t   drum_cur_fill;
+// DRUM — REV page
+extern lv_obj_t *rev_mode_btn;
+extern lv_obj_t *rev_mode_lbl;
+extern lv_obj_t *rev_preset_dd;
+extern uint8_t   rev_preset;
+extern uint8_t   rev_mode;
 
+void rev_page_create(lv_obj_t *parent);
+// DRUM — KIT page
+extern lv_obj_t *kit_preset_dd;
+extern lv_obj_t *kit_rev_dd;
+extern lv_obj_t *kit_voice_dd[9];
+extern uint8_t   kit_cur_kit;   // 0..10
+#define KIT_NAME_LEN 24
+extern char kit_names[16][KIT_NAME_LEN];
+void kit_close_rename_window();
+void kit_page_create(lv_obj_t *parent);
+
+// DRUM — SONG: layout griglia + array slot (visibili cross-file)
+#define SONG_SLOTS           256
+#define SONG_SLOTS_PER_PAGE  32
+#define SONG_ROWS            4
+#define SONG_COLS            8
+
+extern lv_obj_t *song_slot    [SONG_ROWS][SONG_COLS];
+extern lv_obj_t *song_slot_lbl[SONG_ROWS][SONG_COLS];
+extern lv_obj_t *song_slot_kit_lbl[SONG_ROWS][SONG_COLS];
+extern lv_obj_t *song_slot_num_lbl[SONG_ROWS][SONG_COLS];
+// Immagini micro meter (definite in images.c)
+extern const lv_img_dsc_t img_micro_meter_audio_track;
+extern const lv_img_dsc_t img_micro_meter_audio_indicator;
+// DRUM — micro meter per riga + dropdown pattern
+extern lv_obj_t *drum_row_meter[DRUM_ROWS];
+extern lv_obj_t *drum_ptn_dd;
+// DRUM — sezione A/B/C/D (pendente al boundary sul Teensy)
+extern lv_obj_t *drum_sec_btn[4];
+extern lv_obj_t *drum_sec_lbl[4];
+extern uint8_t   drum_cur_section;   // 0=A 1=B 2=C 3=D
 extern lv_obj_t  *drum_cell[DRUM_ROWS][DRUM_COLS];
 extern lv_obj_t  *drum_dot [DRUM_ROWS][DRUM_COLS];
 extern uint8_t    drum_pattern_data[DRUM_ROWS][DRUM_COLS];
@@ -35,8 +87,12 @@ extern bool       drum_playing;
 extern lv_timer_t*drum_step_timer;
 extern lv_obj_t  *drum_play_btn;
 extern lv_obj_t  *drum_play_lbl;
-extern int        drum_grid_x, drum_grid_y, drum_grid_w, drum_grid_h, drum_cell_w;
-
+extern int  drum_grid_x, drum_grid_y, drum_grid_w, drum_grid_h, drum_cell_w;
+// DRUM — sezione A/B/C/D (pendente al boundary sul Teensy)
+extern lv_obj_t *drum_sec_btn[4];
+extern lv_obj_t *drum_sec_lbl[4];
+// drum_cur_section resta file-static in Modules: persiste in RAM
+// tra una pagina e l'altra, non serve esporlo.
 // ============================================================
 // SYNTHB VCF PAGE (definito in lvglGrafModules.cpp)
 // ============================================================

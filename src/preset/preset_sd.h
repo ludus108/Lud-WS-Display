@@ -8,6 +8,16 @@
 // =========================================================================
 // preset_sd.h — Gestione preset su SD (formato binario K-V)
 // =========================================================================
+// cartelle in SD : 
+//	 	|__/preset/Chorus/
+//		|__/preset/synthA/
+//		|__/preset/synthB/
+//		|__/preset/dlyA/
+//		|__/preset/dlyB/
+//		|__/preset/FM/
+//		|__/preset/RevFV1/
+//		|__/preset/Phase/
+//
 // Struttura:
 //   /preset/synthA/
 //     ├── preset_00.bin .. preset_29.bin
