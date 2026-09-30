@@ -48,7 +48,7 @@ enum WaveCategory { CAT_WF = 0, CAT_FM = 1, CAT_AM = 2 };
 struct WaveDef { const char* name; int category; };
 extern struct WaveDef WAVE_DEFS[NUM_WAVES];
 
-#define WF_ITEMS "SAW\nSAW8\nTRI\nSQR\nSINE\nFM 1\nFM 2\nFM3\nNOISE"
+#define WF_ITEMS "SAW\nSAW8\nTRI\nSQR\nSINE\nFM 1\nFM 2\nNOISE"
 #define FM_ITEMS "FM 0\nFM 1\nFM 2\nFM 3\nFM 4\nFM 5\nFM 6\nFM 7"
 #define AM_ITEMS "AM 1\nAM 2\nAM 3\nAM 4\nAM 5\nAM 6\nAM 7\nAM 8"
 
@@ -110,9 +110,14 @@ struct ShapeData {
     lv_obj_t *chart;
     lv_chart_series_t *serie;
     lv_obj_t *list;
-    lv_obj_t *leds[3];
+	  lv_obj_t *edit_btn; 
+    lv_obj_t *leds[3];           // legacy — non più usato, lasciato per compatibilità
     int current_cat;
     const char *list_items;
+
+    // NUOVI: bottone unico WF/FM/AM ciclico
+    lv_obj_t *cat_btn;
+    lv_obj_t *cat_btn_lbl;
 };
 extern struct ShapeData shape_data[2];
 
@@ -231,10 +236,13 @@ void eb(lv_event_t *e);
 void ebright(lv_event_t *e);
 void eslider(lv_event_t *e);
 void ecat_btn(lv_event_t *e);
+void ecat_cycle(lv_event_t *e);    // ← NUOVO
 void ehslider(lv_event_t *e);
 void elist(lv_event_t *e);
 void rename_btn_click(lv_event_t *e);
 void init_sd_btn_click(lv_event_t *e);
+void fm_edit_btn_cb(lv_event_t *e);  
+
 
 // ========================== DISCOVERY (LWSv1) ==========================
 void discover_all_mcu_start();

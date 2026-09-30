@@ -14,7 +14,14 @@
 #define ENV_POINTS     60
 
 const uint8_t ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8};
-
+// Colore del bordo per categoria waveform (WF/FM/AM)
+static uint32_t cat_color(int cat) {
+    switch (cat) {
+        case CAT_FM: return 0xFF8800;
+        case CAT_AM: return 0xAA44FF;
+        default:     return 0x00AAFF;   // CAT_WF
+    }
+}
 // ============================================================
 // 1) WIDGET DI BASE
 // ============================================================
@@ -162,65 +169,18 @@ void h_slider(lv_obj_t *p, int id) {
     lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_pos(title_lbl, 20, 5);
 
-    const char *cat_names[] = {"WF", "FM", "AM"};
-    lv_color_t cat_colors[] = {lv_color_hex(0x00AAFF), lv_color_hex(0xFF8800), lv_color_hex(0xAA44FF)};
-    int cat_btn_w = 80, cat_btn_h = 90, cat_gap = 15, cat_start_x = 10, cat_y = 94;
-    for (int i = 0; i < 3; i++) {
-        lv_obj_t *led = lv_obj_create(p);
-        lv_obj_set_size(led, 12, 12);
-        lv_obj_set_style_radius(led, 6, 0);
-        lv_obj_set_style_bg_color(led, lv_color_hex(0x333333), 0);
-        lv_obj_set_style_border_width(led, 0, 0);
-        int led_x = cat_start_x + i * (cat_btn_w + cat_gap) + cat_btn_w/2 - 6;
-        lv_obj_set_pos(led, led_x, 80);
-        shape_data[id-1].leds[i] = led;
+    int idx = id - 1;
+    ShapeData *d = &shape_data[idx];
 
-        lv_obj_t *cat_btn = lv_btn_create(p);
-        lv_obj_set_size(cat_btn, cat_btn_w, cat_btn_h);
-        lv_obj_set_pos(cat_btn, cat_start_x + i * (cat_btn_w + cat_gap), cat_y);
-        lv_obj_set_style_bg_color(cat_btn, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_bg_color(cat_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(cat_btn, 8, 0);
-        lv_obj_set_style_border_width(cat_btn, 2, 0);
-        lv_obj_set_style_border_color(cat_btn, cat_colors[i], 0);
-        lv_obj_t *cat_label = lv_label_create(cat_btn);
-        lv_label_set_text(cat_label, cat_names[i]);
-        lv_obj_set_style_text_color(cat_label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(cat_label, &lv_font_montserrat_24, 0);
-        lv_obj_center(cat_label);
-        lv_obj_add_event_cb(cat_btn, ecat_btn, LV_EVENT_CLICKED,
-                            (void*)(uintptr_t)(id * 10 + i));
-    }
+    // ============================================================
+    // PLOTTER (in alto a sinistra)
+    // ============================================================
+    const int PLOT_X = 10, PLOT_Y = 45;
+    const int PLOT_W = 220, PLOT_H = 105;
 
-    int list_y = cat_y + cat_btn_h + 20;
-    lv_obj_t *grid_container = lv_obj_create(p);
-    lv_obj_set_size(grid_container, 320, 140);
-    lv_obj_set_pos(grid_container, 10, list_y);
-    lv_obj_set_style_bg_opa(grid_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(grid_container, 0, 0);
-    lv_obj_clear_flag(grid_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(grid_container, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(grid_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_all(grid_container, 5, 0);
-    lv_obj_set_style_pad_row(grid_container, 5, 0);
-    lv_obj_set_style_pad_column(grid_container, 5, 0);
-
-    lv_obj_t *lb = lv_label_create(p);
-    lv_label_set_text(lb, "Wave Shape");
-    lv_obj_set_style_text_color(lb, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lb, &lv_font_montserrat_14, 0);
-    lv_obj_set_pos(lb, 10, list_y - 20);
-
-    shape_data[id-1].list = grid_container;
-    shape_data[id-1].current_cat = CAT_WF;
-    shape_data[id-1].list_items = WF_ITEMS;
-    update_leds(shape_data[id-1].leds, CAT_WF);
-    populate_grid(grid_container, WF_ITEMS, 0, id);
-
-    int plotter_x = 400, plotter_y = 110;
     lv_obj_t *chart = lv_chart_create(p);
-    lv_obj_set_size(chart, 250, 130);
-    lv_obj_set_pos(chart, plotter_x, plotter_y);
+    lv_obj_set_size(chart, PLOT_W, PLOT_H);
+    lv_obj_set_pos(chart, PLOT_X, PLOT_Y);
     lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
     lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
     lv_chart_set_point_count(chart, WAVE_POINTS);
@@ -230,14 +190,21 @@ void h_slider(lv_obj_t *p, int id) {
     lv_chart_set_div_line_count(chart, 0, 0);
     lv_chart_series_t *serie = lv_chart_add_series(chart, lv_color_hex(0xFFFF00),
                                                    LV_CHART_AXIS_PRIMARY_Y);
-    shape_data[id-1].chart = chart;
-    shape_data[id-1].serie = serie;
+    d->chart = chart;
+    d->serie = serie;
     update_plotter_by_wave(id);
 
-    int slider_x = plotter_x + 15, slider_y = plotter_y + 160;
+    // ============================================================
+    // SLIDER ORIZZONTALE (sotto il plotter, nessuna label SHAPE)
+    // ============================================================
+    const int SL_X = PLOT_X + 5;
+    const int SL_Y = PLOT_Y + PLOT_H + 5;
+    const int SL_W = 212;
+    const int SL_H = 54;
+
     lv_obj_t *s = lv_slider_create(p);
-    lv_obj_set_size(s, 212, 54);
-    lv_obj_set_pos(s, slider_x, slider_y);
+    lv_obj_set_size(s, SL_W, SL_H);
+    lv_obj_set_pos(s, SL_X, SL_Y);
     lv_slider_set_range(s, 0, 100);
     lv_obj_set_style_pad_all(s, 0, 0);
     lv_obj_add_flag(s, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
@@ -249,7 +216,7 @@ void h_slider(lv_obj_t *p, int id) {
     uint8_t init_shape = (id == SRC_A) ? g.shape_a : g.shape_b;
     lv_slider_set_value(s, init_shape, LV_ANIM_OFF);
     if (id == SRC_A) g.shape_last_A = init_shape;
-    else g.shape_last_B = init_shape;
+    else             g.shape_last_B = init_shape;
 
     lv_obj_set_style_bg_img_src(s, &img_slider_oriz_track, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_INDICATOR);
@@ -266,14 +233,9 @@ void h_slider(lv_obj_t *p, int id) {
     lv_obj_set_style_height(s, 45, LV_PART_KNOB);
 
     if (id == SRC_A) g.shape_slider_A = s;
-    else g.shape_slider_B = s;
+    else             g.shape_slider_B = s;
 
-    lv_obj_t *shape_label = lv_label_create(p);
-    lv_label_set_text(shape_label, "SHAPE");
-    lv_obj_set_style_text_color(shape_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(shape_label, &lv_font_montserrat_18, 0);
-    lv_obj_align_to(shape_label, s, LV_ALIGN_OUT_TOP_MID, 0, -10);
-
+    // Label A / B ai lati dello slider
     const char *letter = (id == SRC_A) ? "A" : "B";
     lv_obj_t *label_A = lv_label_create(p);
     lv_label_set_text(label_A, letter);
@@ -287,17 +249,18 @@ void h_slider(lv_obj_t *p, int id) {
     lv_obj_set_style_text_font(label_B, &lv_font_montserrat_18, 0);
     lv_obj_align_to(label_B, s, LV_ALIGN_OUT_RIGHT_MID, 15, 0);
 
-    shape_data[id-1].id = id;
-    lv_obj_add_event_cb(s, ehslider, LV_EVENT_VALUE_CHANGED, &shape_data[id-1]);
+    d->id = id;
+    lv_obj_add_event_cb(s, ehslider, LV_EVENT_VALUE_CHANGED, d);
 
+    // Freccina di target
     uint8_t target = (id == SRC_A) ? g.pre_shape_A : g.pre_shape_B;
-    int arrow_x = slider_x + (int)((target / 100.0f) * 212) - 12;
-    int arrow_y = slider_y + 54 + 5;
+    int arrow_x = SL_X + (int)((target / 100.0f) * SL_W) - 12;
+    int arrow_y = SL_Y + SL_H + 5;
     lv_obj_t *arrow = lv_img_create(p);
     lv_img_set_src(arrow, &freccina_oriz);
     lv_obj_set_pos(arrow, arrow_x, arrow_y);
     if (id == SRC_A) g.shape_arrow_A = arrow;
-    else g.shape_arrow_B = arrow;
+    else             g.shape_arrow_B = arrow;
 
     bool crs_flag = (id == SRC_A) ? g.shape_crs_A : g.shape_crs_B;
     if (crs_flag) {
@@ -307,26 +270,100 @@ void h_slider(lv_obj_t *p, int id) {
         lv_obj_clear_flag(arrow, LV_OBJ_FLAG_HIDDEN);
         update_shape_slider_color(id, true);
     }
-}
 
+    // ============================================================
+    // GRIGLIA WAVE SHAPE — 4 colonne, senza label "Wave Shape"
+    // ============================================================
+    const int GRID_X = 10, GRID_Y = 245;
+    const int GRID_W = 305, GRID_H = 100;
+
+    lv_obj_t *grid_container = lv_obj_create(p);
+    lv_obj_set_size(grid_container, GRID_W, GRID_H);
+    lv_obj_set_pos(grid_container, GRID_X, GRID_Y);
+    lv_obj_set_style_bg_opa(grid_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(grid_container, 0, 0);
+    lv_obj_clear_flag(grid_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(grid_container, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(grid_container, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_all(grid_container, 5, 0);
+    lv_obj_set_style_pad_row(grid_container, 5, 0);
+    lv_obj_set_style_pad_column(grid_container, 5, 0);
+
+    d->list = grid_container;
+    d->current_cat = CAT_WF;
+    d->list_items = WF_ITEMS;
+    populate_grid(grid_container, WF_ITEMS, 0, id);
+
+    // ============================================================
+    // BOTTONE UNICO WF/FM/AM (in basso, a destra di home)
+    // ============================================================
+    lv_obj_t *cat_btn = lv_btn_create(p);
+    lv_obj_set_size(cat_btn, 90, 90);
+    lv_obj_set_pos(cat_btn, 110, 360);
+    lv_obj_set_style_bg_color(cat_btn, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_bg_color(cat_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(cat_btn, 8, 0);
+    lv_obj_set_style_border_width(cat_btn, 3, 0);
+    lv_obj_set_style_border_color(cat_btn, lv_color_hex(0x00AAFF), 0);
+
+    lv_obj_t *cat_lbl = lv_label_create(cat_btn);
+    lv_label_set_text(cat_lbl, "WF");
+    lv_obj_set_style_text_color(cat_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(cat_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_center(cat_lbl);
+
+    d->cat_btn     = cat_btn;
+    d->cat_btn_lbl = cat_lbl;
+    lv_obj_add_event_cb(cat_btn, ecat_cycle, LV_EVENT_CLICKED, (void*)(uintptr_t)id);
+
+    // ============================================================
+    // BOTTONE "Edit" (visibile solo quando cat=FM)
+    // ============================================================
+    lv_obj_t *edit_btn = lv_btn_create(p);
+    lv_obj_set_size(edit_btn, 90, 90);
+    lv_obj_set_pos(edit_btn, 210, 360);
+    lv_obj_set_style_bg_color(edit_btn, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_bg_color(edit_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(edit_btn, 8, 0);
+    lv_obj_set_style_border_width(edit_btn, 3, 0);
+    lv_obj_set_style_border_color(edit_btn, lv_color_hex(0xFF2222), 0);
+
+    lv_obj_t *edit_lbl = lv_label_create(edit_btn);
+    lv_label_set_text(edit_lbl, "Edit");
+    lv_obj_set_style_text_color(edit_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(edit_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_center(edit_lbl);
+
+    d->edit_btn = edit_btn;
+    lv_obj_add_flag(edit_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(edit_btn, fm_edit_btn_cb, LV_EVENT_CLICKED, NULL);
+
+}
 // ============================================================
 // 3) PLOTTER / GRIGLIA / WAVEFORM
 // ============================================================
+
 void grid_btn_click(lv_event_t *e) {
     int id = (int)(uintptr_t)lv_event_get_user_data(e);
     int synth_id = id >> 8;
     int btn_idx = id & 0xFF;
     int idx = (synth_id == SRC_A) ? 0 : 1;
 
-    if (grid_selected_idx[idx] >= 0 && grid_selected_idx[idx] < grid_btn_count[idx]) {
-        lv_obj_set_style_bg_color(grid_btns[idx][grid_selected_idx[idx]], lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_border_color(grid_btns[idx][grid_selected_idx[idx]], lv_color_hex(0x666666), 0);
-    }
-    lv_obj_set_style_bg_color(grid_btns[idx][btn_idx], lv_color_hex(0x0F3460), 0);
-    lv_obj_set_style_border_color(grid_btns[idx][btn_idx], lv_color_hex(0x00AAFF), 0);
-    grid_selected_idx[idx] = btn_idx;
-
     int cat = shape_data[idx].current_cat;
+    uint32_t sel_color = cat_color(cat);
+
+    // Deseleziona precedente: border sottile grigio
+    if (grid_selected_idx[idx] >= 0 && grid_selected_idx[idx] < grid_btn_count[idx]) {
+        lv_obj_set_style_border_width(grid_btns[idx][grid_selected_idx[idx]], 1, 0);
+        lv_obj_set_style_border_color(grid_btns[idx][grid_selected_idx[idx]],
+                                      lv_color_hex(0x666666), 0);
+    }
+    // Seleziona nuovo: border spesso colorato, bg invariato
+    lv_obj_set_style_border_width(grid_btns[idx][btn_idx], 2, 0);
+    lv_obj_set_style_border_color(grid_btns[idx][btn_idx],
+                                  lv_color_hex(sel_color), 0);
+    grid_selected_idx[idx] = btn_idx;
 
     if (synth_id == SRC_A) {
         int global_idx;
@@ -354,6 +391,7 @@ void populate_grid(lv_obj_t *container, const char *items, int selected_idx, int
     int count = 0;
     const char *start = items;
     const char *end;
+
     while (*start && count < 20) {
         end = start;
         while (*end && *end != '\n') end++;
@@ -384,9 +422,13 @@ void populate_grid(lv_obj_t *container, const char *items, int selected_idx, int
     }
     grid_btn_count[idx] = count;
     grid_selected_idx[idx] = selected_idx;
-    if (selected_idx < count) {
-        lv_obj_set_style_bg_color(grid_btns[idx][selected_idx], lv_color_hex(0x0F3460), 0);
-        lv_obj_set_style_border_color(grid_btns[idx][selected_idx], lv_color_hex(0x00AAFF), 0);
+
+    // Selezionato: bg invariato, bordo spesso col colore della categoria
+    if (selected_idx >= 0 && selected_idx < count) {
+        uint32_t sel_color = cat_color(shape_data[idx].current_cat);
+        lv_obj_set_style_border_width(grid_btns[idx][selected_idx], 2, 0);
+        lv_obj_set_style_border_color(grid_btns[idx][selected_idx],
+                                      lv_color_hex(sel_color), 0);
     }
 }
 
@@ -776,13 +818,17 @@ void update_timeline(uint32_t cur_ms, uint32_t tot_ms) {
 // ============================================================
 // 7) SUBMENU (DCO/VCF/MOD/VCA/DLY)
 // ============================================================
+
 void submenu(lv_obj_t *p) {
     lv_obj_add_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_set_style_clip_corner(p, 0, 0);
 
     home_btn_at(p, -1, 30, 360);
 
-    const char *n[] = {"DCO","VCF","MOD","VCA","DLY"};
+    // Suffisso in base al synth attivo
+    const char *sfx = (g.synth && strcmp(g.synth, "SYNTH B") == 0) ? " B" : " A";
+
+    const char *names[] = {"DCO","VCF","MOD","VCA","DLY"};
     lv_color_t cols[] = {
         lv_color_hex(0x00FF00),   // DCO
         lv_color_hex(0xCC3300),   // VCF
@@ -790,8 +836,11 @@ void submenu(lv_obj_t *p) {
         lv_color_hex(0xFFCC33),   // VCA
         lv_color_hex(0xBB88FF)    // DLY
     };
-    for (int i = 0; i < 5; i++)
-        btn(p, n[i], 135 + i * 130, 360, 115, 90, cols[i], 10 + i);
+    char label[16];
+    for (int i = 0; i < 5; i++) {
+        snprintf(label, sizeof(label), "%s%s", names[i], sfx);
+        btn(p, label, 135 + i * 130, 360, 115, 90, cols[i], 10 + i);
+    }
 }
 
 // ============================================================

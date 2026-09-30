@@ -11,6 +11,8 @@
 #include "images/img_meter_audio_indicator.c"
 #include "images/img_meter_comp_track.c"
 #include "images/img_meter_comp_indicator.c"
+#include "images/img_micro_meter_audio_indicator.c"
+#include "images/img_micro_meter_audio_track.c"
 #include "images/img_slider_oriz_track.c"
 #include "images/img_slider_oriz_indicator.c"
 #include "images/img_slider_oriz_knob.c"
