@@ -90,31 +90,32 @@ void reset_ui_pointers() {
         sB_vcfb_crossed[i] = false;
         for (int t = 0; t < VCF_TICK_COUNT; t++)  sB_vcfb_tick[i][t] = nullptr;
     }
-	    for (int i = 0; i < 4; i++) {
-        drum_sec_btn[i] = nullptr;
-        drum_sec_lbl[i] = nullptr;
-    }
-      for (int r = 0; r < DRUM_ROWS; r++) drum_row_meter[r] = nullptr;
-    drum_ptn_dd = nullptr;
-	    drum_fl_btn = nullptr;
-    drum_fl_lbl = nullptr;
-       // SONG
-    song_song_dd  = nullptr;
+	   
+       // -------------------------------------------  SONG
+       song_song_dd  = nullptr;
     song_fln_dd   = nullptr;
+    song_kit_dd   = nullptr;
+    song_rev_dd   = nullptr;
     song_page_lbl = nullptr;
     for (int i = 0; i < 4; i++) {
         song_sec_btn[i] = nullptr;
         song_sec_lbl[i] = nullptr;
     }
-       for (int r = 0; r < SONG_ROWS; r++)
+    for (int r = 0; r < SONG_ROWS; r++)
         for (int c = 0; c < SONG_COLS; c++) {
             song_slot[r][c]             = nullptr;
             song_slot_lbl[r][c]         = nullptr;
             song_slot_kit_lbl[r][c]     = nullptr;
             song_slot_num_lbl[r][c]     = nullptr;
+            song_slot_rev_lbl[r][c]     = nullptr;
         }
     song_sel_slot = -1;
-	    song_kit_dd = nullptr;
+    // song_cur_song, song_cur_page, songArr, songLen, song_names persistono
+	    song_play_btn = nullptr;
+    song_play_lbl = nullptr;
+    song_cursor   = nullptr;
+    // song_playing / song_play_slot / song_play_step sono static, no reset
+		//--- -------------------------------------------------------------REV
 		    rev_mode_btn = nullptr;
     rev_mode_lbl = nullptr;
     // rev_mode NON si resetta (persiste)
@@ -124,6 +125,31 @@ void reset_ui_pointers() {
     kit_rev_dd = nullptr;
     for (int i = 0; i < 9; i++) kit_voice_dd[i] = nullptr;
     // kit_cur_kit NON si resetta (persiste tra pagine)
+	//------------------------- DRUM ------------------------------
+	 for (int i = 0; i < 4; i++) {
+        drum_sec_btn[i] = nullptr;
+        drum_sec_lbl[i] = nullptr;
+    }
+      for (int r = 0; r < DRUM_ROWS; r++) drum_row_meter[r] = nullptr;
+    drum_ptn_dd = nullptr;
+	    drum_fl_btn = nullptr;
+    drum_fl_lbl = nullptr;
+	    drum_bpm_btn       = nullptr;
+    drum_bpm_lbl       = nullptr;
+    drum_swing_slider  = nullptr;
+    drum_swing_val_lbl = nullptr;
+    // drum_bpm e drum_swing NON si resettano (persistono)
+	    for (int i = 0; i < DRUM_MIX_COUNT; i++) {
+        drum_mix_slider[i]  = nullptr;
+        drum_mix_val_lbl[i] = nullptr;
+    }
+       drum_song_dd     = nullptr;
+    drum_monitor_lbl = nullptr;
+	    drum_play_song_btn = nullptr;
+    drum_play_song_lbl = nullptr;
+	    song_loop_btn = nullptr;
+    song_loop_lbl = nullptr;
+    // song_loop NON si resetta (persiste tra pagine)
 }
 
 void page_begin(const char *title) {
@@ -138,6 +164,9 @@ void page_begin(const char *title) {
     }
     close_rename_window();
 	kit_close_rename_window();
+	    song_close_rename_window();
+	    drum_close_bpm_window();
+		    song_stop();
 
     bool isHome = (title == nullptr);
     bool isPlay = (title && strcmp(title, "PLAY") == 0);
@@ -291,7 +320,8 @@ void create_page(const char *title) {
         lv_obj_t *t = NULL;
     if (strncmp(title, "DCO", 3) != 0
         && strcmp(title, "SEQ")  != 0
-        && strcmp(title, "SONG") != 0) {
+        && strcmp(title, "SONG") != 0
+		&& strcmp(title, "DRUM") != 0) {
         t = lv_label_create(m);
         lv_label_set_text(t, title);
         lv_obj_set_style_text_font(t, &lv_font_montserrat_32, 0);
@@ -538,12 +568,53 @@ void create_page(const char *title) {
      
     // ---------------- DRUM ----------------
     else if (strcmp(title, "DRUM") == 0) {
-		  drum_pattern_label = lv_label_create(m);
-        lv_label_set_text(drum_pattern_label, "PTN --");
-        lv_obj_set_style_text_color(drum_pattern_label, lv_color_hex(0x00FFFF), 0);
-        lv_obj_set_style_text_font(drum_pattern_label, &lv_font_montserrat_32, 0);
-        if (t) lv_obj_align_to(drum_pattern_label, t, LV_ALIGN_OUT_RIGHT_MID, 30, 0);
-        else   lv_obj_set_pos(drum_pattern_label, 130, 5);       
+		        drum_seqArr_init_if_needed();
+		        songArr_init_if_needed();
+	// ---- Dropdown SNG (in alto a sinistra, sostituisce il titolo) ----
+        drum_song_dd = lv_dropdown_create(m);
+        lv_obj_set_size(drum_song_dd, 150, 45);
+        lv_obj_set_pos(drum_song_dd, 5, 5);
+        lv_obj_set_style_bg_color(drum_song_dd, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_bg_color(drum_song_dd, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+        lv_obj_set_style_border_width(drum_song_dd, 2, 0);
+        lv_obj_set_style_border_color(drum_song_dd, lv_color_hex(0x00DD00), 0);
+        lv_obj_set_style_radius(drum_song_dd, 6, 0);
+        lv_obj_set_style_text_color(drum_song_dd, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(drum_song_dd, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_pad_left(drum_song_dd, 6, 0);
+        lv_obj_set_style_pad_right(drum_song_dd, 4, 0);
+        {
+            static char opts[512];
+            song_build_dd_options(opts, sizeof(opts));
+            lv_dropdown_set_options(drum_song_dd, opts);
+        }
+        lv_dropdown_set_selected(drum_song_dd, song_cur_song);
+        lv_dropdown_set_symbol(drum_song_dd, NULL);
+        {
+            lv_obj_t *l = lv_dropdown_get_list(drum_song_dd);
+            if (l) {
+                lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+                lv_obj_set_style_bg_color(l, lv_color_hex(0x1A1A2E), 0);
+                lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
+                lv_obj_set_style_max_height(l, 380, 0);
+            }
+        }
+        lv_obj_add_event_cb(drum_song_dd, [](lv_event_t *e) {
+            lv_obj_t *dd = lv_event_get_target(e);
+            int sel = lv_dropdown_get_selected(dd);
+            if (sel < 0) return;
+            song_cur_song = (uint8_t)sel;
+            drum_monitor_update();
+        }, LV_EVENT_VALUE_CHANGED, NULL);
+
+        // ---- Label monitor "KIT nome PTN nn REV nn" ----
+        drum_monitor_lbl = lv_label_create(m);
+        lv_label_set_text(drum_monitor_lbl, "");
+        lv_obj_set_style_text_color(drum_monitor_lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(drum_monitor_lbl, &lv_font_montserrat_20, 0);
+        lv_obj_set_pos(drum_monitor_lbl, 170, 15);
+        drum_monitor_update();
+ 
 		
 		   lv_obj_t *seq_btn = lv_btn_create(m);
         lv_obj_set_size(seq_btn, 90, 90);
@@ -608,6 +679,27 @@ void create_page(const char *title) {
         lv_obj_center(rev_lbl);
         lv_obj_add_event_cb(rev_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)34);
 
+        drum_bpm_swing_create(m);
+		drum_mix_create(m);
+		
+		        // ---- Play/Stop song (a destra di home) ----
+        drum_play_song_btn = lv_btn_create(m);
+        lv_obj_set_size(drum_play_song_btn, 90, 90);
+        lv_obj_set_pos(drum_play_song_btn, 110, 360);
+        lv_obj_set_style_bg_color(drum_play_song_btn, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_bg_color(drum_play_song_btn, lv_color_hex(0x0F3460),
+                                  LV_STATE_PRESSED);
+        lv_obj_set_style_radius(drum_play_song_btn, 8, 0);
+        lv_obj_set_style_border_width(drum_play_song_btn, 3, 0);
+        lv_obj_set_style_border_color(drum_play_song_btn, lv_color_hex(0x00FF00), 0);
+        drum_play_song_lbl = lv_label_create(drum_play_song_btn);
+        lv_label_set_text(drum_play_song_lbl, song_playing ? "Stop" : "Play");
+        lv_obj_set_style_text_color(drum_play_song_lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(drum_play_song_lbl, &lv_font_montserrat_18, 0);
+        lv_obj_center(drum_play_song_lbl);
+        lv_obj_add_event_cb(drum_play_song_btn, drum_play_song_btn_cb,
+                            LV_EVENT_CLICKED, NULL);
+		
         home_btn(m, -1);
 		
       
@@ -619,6 +711,7 @@ void create_page(const char *title) {
     }
 	    // ---------------- SONG ----------------
     else if (strcmp(title, "SONG") == 0) {
+		        drum_seqArr_init_if_needed();
         song_page_create(m);
     }
 	      // ---------------- KIT ----------------

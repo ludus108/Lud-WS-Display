@@ -1,6 +1,7 @@
 #include "comunicazioni.h"
 #include <string.h>
-
+#include "src/grafica/lvglGraf.h"
+#include "src/grafica/lvglGraf_internal.h"
 // =========================================================================
 // comunicazioni.cpp — Implementazione LWSv1.1 (Display)
 // =========================================================================
@@ -204,11 +205,23 @@ static void process_frame(const LwsFrame &f) {
             break;
         }
 
-        case CMD_PARAM: {
+              case CMD_PARAM: {
             if (f.len >= 3) {
+                char tgt = (char)f.data[0];
+                char key = (char)f.data[1];
+                uint8_t val = f.data[2];
+
                 Serial.printf("[LWS] CMD_PARAM da %c: target=%c key=%c val=%u\n",
-                              (char)f.sender, (char)f.data[0],
-                              (char)f.data[1], f.data[2]);
+                              (char)f.sender, tgt, key, val);
+
+                // Echo dal Teensy per BPM ('b') e Swing ('W')
+                if ((char)f.sender == ID_TEENSY && tgt == ID_DISPLAY) {
+                    if (key == 'b') {
+                        drum_bpm_set_from_teensy((uint16_t)val);
+                    } else if (key == 'W') {
+                        drum_swing_set_from_teensy((uint16_t)val);
+                    }
+                }
             }
             break;
         }

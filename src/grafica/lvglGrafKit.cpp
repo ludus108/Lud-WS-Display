@@ -130,7 +130,7 @@ static void kit_refresh_dd_options() {
         if (i > 0) strncat(kit_opts, "\n",
                           sizeof(kit_opts) - strlen(kit_opts) - 1);
         char line[40];
-        snprintf(line, sizeof(line), "%d %s", i + 1, kit_names[i]);
+       snprintf(line, sizeof(line), "%d %.20s", i + 1, kit_names[i]);
         strncat(kit_opts, line,
                 sizeof(kit_opts) - strlen(kit_opts) - 1);
     }
@@ -347,7 +347,7 @@ void kit_page_create(lv_obj_t *parent) {
         if (i > 0) strncat(kit_opts, "\n",
                           sizeof(kit_opts) - strlen(kit_opts) - 1);
         char line[40];
-        snprintf(line, sizeof(line), "%d %s", i + 1, kit_names[i]);
+        snprintf(line, sizeof(line), "%d %.20s", i + 1, kit_names[i]);
         strncat(kit_opts, line,
                 sizeof(kit_opts) - strlen(kit_opts) - 1);
     }
