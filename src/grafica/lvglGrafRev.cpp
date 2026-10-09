@@ -161,6 +161,18 @@ static void rev_preset_dd_cb(lv_event_t *e) {
 }
 
 // ============================================================
+// Salva
+// ============================================================
+static void rev_save_btn_cb(lv_event_t *e) {
+    (void)e;
+    // TODO: invio bulk revPresetArr via LWS
+    Serial.printf("[REV] send to Teensy (stub) preset=%u mode=%u\n",
+                  (unsigned)rev_preset, (unsigned)rev_mode);
+    log_add("REV salvato", lv_color_hex(0x00FF00));
+    toast_show("REV salvato!", lv_color_hex(0x00FF00), TOAST_DUR);
+}
+
+// ============================================================
 // Creazione di un singolo slider REV
 //   layout verticale:  [nome]  /  [slider]  /  [valore]
 // ============================================================
@@ -192,17 +204,13 @@ static lv_obj_t* rev_slider_create(lv_obj_t *parent, int idx,
 
     uint32_t col = rev_slider_color(idx);
 
-    // Track
     lv_obj_set_style_bg_img_src(s, &img_slider_track, LV_PART_MAIN);
-
-    // Indicator (colore per slider)
     lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_INDICATOR);
     lv_obj_set_style_bg_img_src(s, &img_slider_indicator, LV_PART_INDICATOR);
     lv_obj_set_style_bg_img_recolor(s, lv_color_hex(col), LV_PART_INDICATOR);
     lv_obj_set_style_bg_img_recolor_opa(s,
         (sliderColorDepth * 255) / 100, LV_PART_INDICATOR);
 
-    // Knob
     lv_obj_set_style_bg_img_src(s, &img_slider_knob, LV_PART_KNOB);
     lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_set_style_width(s, 45, LV_PART_KNOB);
@@ -230,49 +238,20 @@ static lv_obj_t* rev_slider_create(lv_obj_t *parent, int idx,
 // ============================================================
 void rev_page_create(lv_obj_t *parent) {
     // ---- Home bottom-left ----
-    lv_obj_t *home = lv_btn_create(parent);
-    lv_obj_set_size(home, 55, 45);
-    lv_obj_set_pos(home, 5, 415);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(home, 6, 0);
-    lv_obj_set_style_border_width(home, 2, 0);
-    lv_obj_set_style_border_color(home, lv_color_hex(0x9B59B6), 0);
-    lv_obj_t *home_lbl = lv_label_create(home);
-    lv_label_set_text(home_lbl, LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_color(home_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(home_lbl, &lv_font_montserrat_24, 0);
-    lv_obj_center(home_lbl);
-    lv_obj_add_event_cb(home, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)-3);
+    mkbtn(parent, 5, 415, 55, 45,
+          0x9B59B6, LV_SYMBOL_LEFT,
+          &lv_font_montserrat_24,
+          eb, -3, 6, 2);
 
     // ---- Dropdown preset REV 1..16 (top, dopo il titolo) ----
-    rev_preset_dd = lv_dropdown_create(parent);
-    lv_obj_set_size(rev_preset_dd, 110, 45);
-    lv_obj_set_pos(rev_preset_dd, 90, 5);
-    lv_obj_set_style_bg_color(rev_preset_dd, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(rev_preset_dd, lv_color_hex(0x0F3460),
-                              LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(rev_preset_dd, 2, 0);
-    lv_obj_set_style_border_color(rev_preset_dd, lv_color_hex(0xAA0000), 0);
-    lv_obj_set_style_radius(rev_preset_dd, 6, 0);
-    lv_obj_set_style_text_color(rev_preset_dd, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(rev_preset_dd, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_pad_left(rev_preset_dd, 6, 0);
-    lv_obj_set_style_pad_right(rev_preset_dd, 4, 0);
-    lv_dropdown_set_options(rev_preset_dd,
-        "REV 1\nREV 2\nREV 3\nREV 4\nREV 5\nREV 6\nREV 7\nREV 8\n"
-        "REV 9\nREV 10\nREV 11\nREV 12\nREV 13\nREV 14\nREV 15\nREV 16");
+    rev_preset_dd = styled_dropdown(parent, 90, 5, 110, 45,
+                                    0xAA0000,
+                                    &lv_font_montserrat_20,
+                                    "REV 1\nREV 2\nREV 3\nREV 4\nREV 5\n"
+                                    "REV 6\nREV 7\nREV 8\nREV 9\nREV 10\n"
+                                    "REV 11\nREV 12\nREV 13\nREV 14\n"
+                                    "REV 15\nREV 16");
     lv_dropdown_set_selected(rev_preset_dd, rev_preset);
-    lv_dropdown_set_symbol(rev_preset_dd, NULL);
-    {
-        lv_obj_t *l = lv_dropdown_get_list(rev_preset_dd);
-        if (l) {
-            lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
-            lv_obj_set_style_bg_color(l, lv_color_hex(0x1A1A2E), 0);
-            lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
-            lv_obj_set_style_max_height(l, 380, 0);
-        }
-    }
     lv_obj_add_event_cb(rev_preset_dd, rev_preset_dd_cb,
                         LV_EVENT_VALUE_CHANGED, NULL);
 
@@ -286,6 +265,7 @@ void rev_page_create(lv_obj_t *parent) {
     }
 
     // ---- Toggle SER / PAR ----
+    //     Rimane manuale: label e colore bordo cambiano runtime
     rev_mode_btn = lv_btn_create(parent);
     lv_obj_set_size(rev_mode_btn, 120, 45);
     lv_obj_set_pos(rev_mode_btn, 340, 415);
@@ -305,6 +285,12 @@ void rev_page_create(lv_obj_t *parent) {
     lv_obj_center(rev_mode_lbl);
 
     lv_obj_add_event_cb(rev_mode_btn, rev_mode_cb, LV_EVENT_CLICKED, NULL);
+
+    // ---- Bottone Salva (bottom-right, stile SONG/SEQ) ----
+    mkbtn(parent, 680, 415, 110, 45,
+          0xFF4444, "Salva",
+          &lv_font_montserrat_16,
+          rev_save_btn_cb, 0, 6, 2);
 
     // ---- Applica il preset corrente ----
     rev_apply_preset(rev_preset);

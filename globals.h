@@ -133,6 +133,7 @@ extern lv_obj_t *mL, *mR, *mC;
 extern lv_timer_t *mt;
 extern float pkL, pkR, pkC;
 extern const char* last_version;
+extern const char *g_current_page;
 extern uint8_t sliderColorDepth;
 // ========================== POT CONTAINER (6 arc multi-funzione) ==========================
 // Contenitore condiviso tra pagine. Non e' di proprieta' di una pagina specifica:
@@ -169,8 +170,6 @@ extern const lv_img_dsc_t img_bott_play;
 extern const lv_img_dsc_t img_slider_track;
 extern const lv_img_dsc_t img_slider_indicator;
 extern const lv_img_dsc_t img_slider_knob;
-extern const lv_img_dsc_t freccina;
-extern const lv_img_dsc_t freccina_oriz;
 extern const lv_img_dsc_t img_meter_audio_track;
 extern const lv_img_dsc_t img_meter_audio_indicator;
 extern const lv_img_dsc_t img_meter_comp_track;
@@ -180,7 +179,6 @@ extern const lv_img_dsc_t img_slider_oriz_indicator;
 extern const lv_img_dsc_t img_slider_oriz_knob;
 extern const lv_img_dsc_t img_arc_bg;
 extern const lv_img_dsc_t img_arc_indic;
-extern const lv_img_dsc_t home;
 // ========================== DRUM PATTERN LABEL ==========================
 extern lv_obj_t *drum_pattern_label;
 
@@ -268,7 +266,6 @@ extern uint32_t  timeline_total_ms;
 extern int       timeline_bar_w;
 // ========================== TIMELINE CONTROLS ==========================
 extern lv_obj_t    *timeline_btn_init;
-extern lv_obj_t    *timeline_btn_stop;
 extern lv_obj_t    *timeline_btn_play;
 extern bool         timeline_playing;
 extern lv_timer_t  *tdt;

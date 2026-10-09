@@ -10,12 +10,8 @@
 #include <Arduino.h>
 #include <SD.h>
 
-
 // ========================== STATICHE LOCALI ==========================
-static lv_obj_t *rename_win        = NULL;
-static lv_obj_t *rename_ta         = NULL;
-static int       rename_preset_idx = 0;
-static lv_obj_t *confirm_win       = NULL;
+static lv_obj_t *confirm_win = NULL;
 
 // ========================== DROPDOWN E LABEL ==========================
 void update_preset_labels() {
@@ -137,48 +133,6 @@ void preset_dropdown_event(lv_event_t *e) {
     }
 }
 
-void preset_btn_plus(lv_event_t *e) {
-    int id = (int)(uintptr_t)lv_event_get_user_data(e);
-    if (id == 0) {
-        int val = (pendingPresetA >= 0) ? pendingPresetA : presetNumA;
-        pendingPresetA = (++val >= MAX_PRESET) ? 0 : val;
-        if (preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A)) {
-            lv_dropdown_set_selected(preset_dropdown_A, pendingPresetA);
-            lv_obj_set_style_text_color(preset_dropdown_A, lv_color_hex(0xFFFF00), 0);
-        }
-    } else {
-        int val = (pendingPresetB >= 0) ? pendingPresetB : presetNumB;
-        pendingPresetB = (++val >= MAX_PRESET) ? 0 : val;
-        if (preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B)) {
-            lv_dropdown_set_selected(preset_dropdown_B, pendingPresetB);
-            lv_obj_set_style_text_color(preset_dropdown_B, lv_color_hex(0xFFFF00), 0);
-        }
-    }
-    if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
-    update_preset_labels();
-}
-
-void preset_btn_minus(lv_event_t *e) {
-    int id = (int)(uintptr_t)lv_event_get_user_data(e);
-    if (id == 0) {
-        int val = (pendingPresetA >= 0) ? pendingPresetA : presetNumA;
-        pendingPresetA = (--val < 0) ? MAX_PRESET - 1 : val;
-        if (preset_dropdown_A && lv_obj_is_valid(preset_dropdown_A)) {
-            lv_dropdown_set_selected(preset_dropdown_A, pendingPresetA);
-            lv_obj_set_style_text_color(preset_dropdown_A, lv_color_hex(0xFFFF00), 0);
-        }
-    } else {
-        int val = (pendingPresetB >= 0) ? pendingPresetB : presetNumB;
-        pendingPresetB = (--val < 0) ? MAX_PRESET - 1 : val;
-        if (preset_dropdown_B && lv_obj_is_valid(preset_dropdown_B)) {
-            lv_dropdown_set_selected(preset_dropdown_B, pendingPresetB);
-            lv_obj_set_style_text_color(preset_dropdown_B, lv_color_hex(0xFFFF00), 0);
-        }
-    }
-    if (!blink_timer) blink_timer = lv_timer_create(blink_timer_cb, 500, NULL);
-    update_preset_labels();
-}
-
 void preset_btn_sel(lv_event_t *e) {
     int id = (int)(uintptr_t)lv_event_get_user_data(e);
     apply_pending_preset(id);
@@ -200,6 +154,7 @@ static void preset_btn_save(lv_event_t *e) {
 }
 
 // ========================== SELECTOR ==========================
+
 lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y,
                                  const char *label_text, int *numPtr,
                                  char (*names)[PRESET_NAME_LEN]) {
@@ -212,12 +167,14 @@ lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y,
     lv_obj_set_style_border_width(cont, 0, 0);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
 
+    // ---- Label "Preset A/B" (top-left) ----
     lv_obj_t *label = lv_label_create(cont);
     lv_label_set_text(label, label_text);
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
     lv_obj_set_pos(label, 0, 0);
 
+    // ---- Dropdown preset ----
     lv_obj_t *dd = lv_dropdown_create(cont);
     lv_obj_set_size(dd, 220, 50);
     lv_obj_set_pos(dd, 0, 25);
@@ -246,139 +203,86 @@ lv_obj_t* create_preset_selector(lv_obj_t *parent, int x, int y,
     lv_obj_set_style_pad_all(list, 5, 0);
     lv_obj_add_event_cb(dd, preset_dropdown_event, LV_EVENT_VALUE_CHANGED, NULL);
 
-    const char *btn_labels[]  = {"+", "-", "Sel", "Save"};
-    lv_color_t btn_colors[]   = {lv_color_hex(0x1A6B4A), lv_color_hex(0x6B1A1A),
-                                 lv_color_hex(0x0055AA), lv_color_hex(0x885500)};
-    lv_color_t btn_borders[]  = {lv_color_hex(0x00FF88), lv_color_hex(0xFF4444),
-                                 lv_color_hex(0x88CCFF), lv_color_hex(0xFFAA44)};
-    lv_event_cb_t callbacks[] = {preset_btn_plus, preset_btn_minus,
-                                 preset_btn_sel,  preset_btn_save};
+    // ---- Bottone "Salva" (top-right, rosso, y=0) ----
+    lv_obj_t *save_btn = lv_btn_create(cont);
+    lv_obj_set_size(save_btn, 90, 60);
+    lv_obj_set_pos(save_btn, 235, 0);
+    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0xAA0000), 0);
+    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0xDD2222), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(save_btn, 6, 0);
+    lv_obj_set_style_border_width(save_btn, 2, 0);
+    lv_obj_set_style_border_color(save_btn, lv_color_hex(0xFF4444), 0);
+    lv_obj_t *save_lbl = lv_label_create(save_btn);
+    lv_label_set_text(save_lbl, "Salva");
+    lv_obj_set_style_text_color(save_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(save_lbl, &lv_font_montserrat_18, 0);
+    lv_obj_center(save_lbl);
+    lv_obj_add_event_cb(save_btn, preset_btn_save, LV_EVENT_CLICKED,
+                        (void*)(uintptr_t)id);
 
-    int y_plus = 25;
-    int y_step = 60 + 6;
-
-    for (int i = 0; i < 4; i++) {
-        lv_obj_t *b = lv_btn_create(cont);
-        lv_obj_set_size(b, 90, 60);
-        lv_obj_set_pos(b, 235, y_plus + i * y_step);
-        lv_obj_set_style_bg_color(b, btn_colors[i], 0);
-        lv_obj_set_style_radius(b, 6, 0);
-        lv_obj_set_style_border_width(b, 2, 0);
-        lv_obj_set_style_border_color(b, btn_borders[i], 0);
-        lv_obj_t *lbl = lv_label_create(b);
-        lv_label_set_text(lbl, btn_labels[i]);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(lbl,
-            (i == 3) ? &lv_font_montserrat_18 : &lv_font_montserrat_32, 0);
-        lv_obj_center(lbl);
-        lv_obj_add_event_cb(b, callbacks[i], LV_EVENT_CLICKED,
-                            (void*)(uintptr_t)id);
-    }
+    // ---- Bottone "Sel" (sotto Salva, y=66) ----
+    lv_obj_t *sel_btn = lv_btn_create(cont);
+    lv_obj_set_size(sel_btn, 90, 60);
+    lv_obj_set_pos(sel_btn, 235, 66);
+    lv_obj_set_style_bg_color(sel_btn, lv_color_hex(0x0055AA), 0);
+    lv_obj_set_style_bg_color(sel_btn, lv_color_hex(0x003377), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(sel_btn, 6, 0);
+    lv_obj_set_style_border_width(sel_btn, 2, 0);
+    lv_obj_set_style_border_color(sel_btn, lv_color_hex(0x88CCFF), 0);
+    lv_obj_t *sel_lbl = lv_label_create(sel_btn);
+    lv_label_set_text(sel_lbl, "Sel");
+    lv_obj_set_style_text_color(sel_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(sel_lbl, &lv_font_montserrat_18, 0);
+    lv_obj_center(sel_lbl);
+    lv_obj_add_event_cb(sel_btn, preset_btn_sel, LV_EVENT_CLICKED,
+                        (void*)(uintptr_t)id);
 
     if (id == 0) preset_dropdown_A = dd;
     else         preset_dropdown_B = dd;
     return dd;
 }
 
-// ========================== RINOMINA ==========================
+// ========================== RINOMINA (modal globale in Core) ==========================
+// Wrapper: la finestra locale è stata sostituita dalla modal globale.
+// Mantengo la firma per non toccare lvglGrafPages.cpp.
 void close_rename_window() {
-    if (rename_win) { lv_obj_del(rename_win); rename_win = NULL; rename_ta = NULL; }
+    close_rename_modal();
 }
 
-static void rename_confirm(lv_event_t *e) {
-    (void)e;
-    const char *name = lv_textarea_get_text(rename_ta);
-    if (strlen(name) > 0) {
-        int synth = 0;
-        if (g.synth && strcmp(g.synth, "SYNTH A") == 0)      synth = 0;
-        else if (g.synth && strcmp(g.synth, "SYNTH B") == 0) synth = 1;
+// Callback applicata dalla modal quando l'utente conferma.
+// user_data = (synth << 16) | preset_idx  (synth: 0=A, 1=B)
+static void preset_rename_apply(const char *new_name, void *user_data) {
+    if (!new_name || strlen(new_name) == 0) return;
 
-        // Wrapper nel .ino
-        requestRenameApply(synth, rename_preset_idx, name);
+    uint32_t packed = (uint32_t)(uintptr_t)user_data;
+    int synth = (int)(packed >> 16);
+    int idx   = (int)(packed & 0xFFFF);
+    if (idx < 0 || idx >= MAX_PRESET) return;
 
-        update_preset_dropdown_options();
-    }
-    close_rename_window();
-}
+    // Wrapper nel .ino
+    requestRenameApply(synth, idx, new_name);
 
-static void rename_cancel(lv_event_t *e) {
-    (void)e;
-    close_rename_window();
+    update_preset_dropdown_options();
 }
 
 void open_rename_window(int idx) {
-    if (rename_win) return;
-    rename_preset_idx = idx;
+    if (rename_modal_is_open()) return;
 
-    rename_win = lv_win_create(lv_scr_act(), 0);
-    lv_obj_set_size(rename_win, 580, 360);
-    lv_obj_set_pos(rename_win, 120, 15);
-    lv_obj_set_style_bg_color(rename_win, lv_color_hex(0x111111), 0);
-    lv_obj_set_style_border_color(rename_win, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_border_width(rename_win, 2, 0);
-    lv_obj_set_style_radius(rename_win, 8, 0);
+    int synth = 0;
+    if (g.synth && strcmp(g.synth, "SYNTH A") == 0)      synth = 0;
+    else if (g.synth && strcmp(g.synth, "SYNTH B") == 0) synth = 1;
 
-    lv_obj_t *client = lv_win_get_content(rename_win);
-    lv_obj_set_style_pad_all(client, 10, 0);
-    lv_obj_set_style_bg_color(client, lv_color_hex(0x000000), 0);
-    lv_obj_set_flex_flow(client, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(client, 10, 0);
+    const char *initial = (synth == 0) ? nome_presetA[idx]
+                                       : nome_presetB[idx];
 
-    rename_ta = lv_textarea_create(client);
-    lv_obj_set_size(rename_ta, 460, 45);
-    lv_obj_set_style_bg_color(rename_ta, lv_color_hex(0x222222), 0);
-    lv_obj_set_style_text_color(rename_ta, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(rename_ta, 1, 0);
-    lv_obj_set_style_border_color(rename_ta, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_font(rename_ta, &lv_font_montserrat_18, 0);
+    uint32_t packed = ((uint32_t)synth << 16) | ((uint32_t)idx & 0xFFFF);
 
-    if (g.synth && strcmp(g.synth, "SYNTH A") == 0) {
-        lv_textarea_set_text(rename_ta, nome_presetA[idx]);
-        lv_textarea_set_max_length(rename_ta, PRESET_NAME_LEN - 1);
-    } else {
-        lv_textarea_set_text(rename_ta, nome_presetB[idx]);
-        lv_textarea_set_max_length(rename_ta, PRESET_NAME_LEN - 1);
-    }
-
-    lv_obj_t *kb = lv_keyboard_create(client);
-    lv_obj_set_size(kb, 550, 220);
-    lv_obj_set_style_text_font(kb, &lv_font_montserrat_18, 0);
-    lv_keyboard_set_textarea(kb, rename_ta);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x222222), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x444444), LV_STATE_PRESSED);
-    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-
-    lv_obj_t *btn_cont = lv_obj_create(client);
-    lv_obj_set_size(btn_cont, 460, 50);
-    lv_obj_set_style_bg_opa(btn_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(btn_cont, 0, 0);
-    lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(btn_cont, 20, 0);
-
-    lv_obj_t *ok_btn = lv_btn_create(btn_cont);
-    lv_obj_set_size(ok_btn, 120, 40);
-    lv_obj_set_style_bg_color(ok_btn, lv_color_hex(0x1A6B4A), 0);
-    lv_obj_t *ok_lbl = lv_label_create(ok_btn);
-    lv_label_set_text(ok_lbl, "OK");
-    lv_obj_set_style_text_color(ok_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(ok_lbl);
-    lv_obj_add_event_cb(ok_btn, rename_confirm, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *cancel_btn = lv_btn_create(btn_cont);
-    lv_obj_set_size(cancel_btn, 120, 40);
-    lv_obj_set_style_bg_color(cancel_btn, lv_color_hex(0x6B1A1A), 0);
-    lv_obj_t *cancel_lbl = lv_label_create(cancel_btn);
-    lv_label_set_text(cancel_lbl, "Annulla");
-    lv_obj_set_style_text_color(cancel_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(cancel_lbl);
-    lv_obj_add_event_cb(cancel_btn, rename_cancel, LV_EVENT_CLICKED, NULL);
+    open_rename_modal("Rinomina Preset",
+                      initial,
+                      PRESET_NAME_LEN - 1,
+                      0x666666,
+                      preset_rename_apply,
+                      (void*)(uintptr_t)packed);
 }
 
 void rename_btn_click(lv_event_t *e) {
@@ -388,23 +292,12 @@ void rename_btn_click(lv_event_t *e) {
 }
 
 // ========================== SLIDER TARGET ==========================
-// Nel nuovo schema, lo slider della UI scrive direttamente nella cache
-// tramite uiSetParam* (definiti in src/preset/preset_ui.h).
-// Questa funzione mantiene solo il comportamento grafico locale.
-// La chiamata effettiva verso il synth avviene in eslider() (lvglGrafFunc.cpp).
 void update_slider_parameter(int idx, int value) {
-    // Aggiorna solo la "posizione target" della UI.
-    // L'invio al synth è responsabilità del chiamante (eslider()).
     g.pre[idx] = constrain(value, 0, 255);
-
-    // Nessuna scrittura in array di preset: la cache dei valori
-    // sta in cacheA[voice] / cacheB e viene aggiornata da uiSetParam*.
 }
 
 void update_slider_target(int idx) {
     if (idx < 0 || idx > 7) return;
-    // Nel nuovo schema non c'è lettura da array timbrA/B.
-    // La posizione target è già in g.pre[idx].
     int val = g.pre[idx];
     if (arr[idx]) {
         int x = slider_base_x[idx];
@@ -429,8 +322,8 @@ void update_all_targets() {
 static void confirm_yes_click(lv_event_t *e) {
     (void)e;
     if (confirm_win) { lv_obj_del(confirm_win); confirm_win = NULL; }
-    lv_timer_t *timer = lv_timer_create([](lv_timer_t *t) {
-        init_sd();       // da src/preset/preset_sd.cpp
+    lv_timer_create([](lv_timer_t *t) {
+        init_sd();               // da src/preset/preset_sd.cpp
         presetCacheClearAll();   // da src/preset/preset_cache.cpp
         log_add("SD inizializzata", lv_color_hex(0x00FF00));
         toast_show("SD inizializzata!", lv_color_hex(0x00FF00), TOAST_DUR);
@@ -490,6 +383,7 @@ void init_sd_btn_click(lv_event_t *e) {
     lv_obj_center(l_no);
     lv_obj_add_event_cb(no, confirm_no_click, LV_EVENT_CLICKED, NULL);
 }
+
 // ========================== EEPROM SETTINGS ==========================
 // Layout EEPROM (5 byte):
 //   [0] bright          0..100

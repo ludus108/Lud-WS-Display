@@ -57,8 +57,8 @@ lv_obj_t *song_play_lbl = nullptr;
 lv_obj_t *song_cursor   = nullptr;
 
 static lv_timer_t *song_play_timer = nullptr;
-static int          song_play_slot = -1;    // indice globale 0..255
-static int          song_play_step = 0;     // 0..15 dentro lo slot
+int          song_play_slot = -1;    // indice globale 0..255
+int          song_play_step = 0;     // 0..15 dentro lo slot
 bool         song_playing   = false;
 bool      song_loop     = true;   // default: Loop attivo
 lv_obj_t *song_loop_btn = nullptr;
@@ -68,15 +68,11 @@ static int song_grid_x  = 0;
 static int song_grid_y  = 0;
 static int song_slot_w  = 0;
 static int song_slot_h  = 0;
-// Finestra rinomina song (modale)
-static lv_obj_t *song_rename_win = nullptr;
-static lv_obj_t *song_rename_ta  = nullptr;
-static int       song_rename_idx = 0;
 
 // ============================================================
 // Init
 // ============================================================
- void songArr_init_if_needed() {
+void songArr_init_if_needed() {
     if (songArr_initialized) return;
     for (int s = 0; s < 16; s++) {
         songLen[s] = 1;
@@ -92,7 +88,28 @@ static int       song_rename_idx = 0;
         }
     }
     songArr_initialized = true;
-    Serial.println("[DRUM] songArr inizializzato (rev 13)");
+    Serial.printf("[INIT] songLen[0]=%u\n", (unsigned)songLen[0]);
+    Serial.println("[DRUM] songArr inizializzato (rev 17)");
+}
+
+int song_current_section() {
+    if (!song_playing) return -1;
+    if (song_play_slot < 0 || song_play_slot >= (int)songLen[song_cur_song]) return -1;
+    uint8_t tipo = songArr[song_cur_song][SONG_COL_TIPO][song_play_slot];
+    if (tipo <= 3) return tipo;
+    return -1;   // fill
+}
+
+int song_current_pattern() {
+    if (!song_playing) return -1;
+    if (song_play_slot < 0 || song_play_slot >= (int)songLen[song_cur_song]) return -1;
+    return songArr[song_cur_song][SONG_COL_NUM][song_play_slot];
+}
+
+bool song_current_is_fill() {
+    if (!song_playing) return false;
+    if (song_play_slot < 0 || song_play_slot >= (int)songLen[song_cur_song]) return false;
+    return songArr[song_cur_song][SONG_COL_TIPO][song_play_slot] == 4;
 }
 
 static uint8_t song_pages_count() {
@@ -178,7 +195,7 @@ static void song_slot_update_visual(int r, int c) {
         lv_label_set_text(lblN, txt_n);
     }
 
-       // REV (bottom, indice + 1) — mostrato solo se DIVERSO dal precedente
+    // REV (bottom, indice + 1) — mostrato solo se DIVERSO dal precedente
     if (lblR) {
         bool show_rev = true;
         if (slot_idx > 0) {
@@ -274,13 +291,12 @@ static void song_set_sel_rev(uint8_t rev) {
 // ============================================================
 // Dropdown SNG: ricostruzione opzioni "n Nome"
 // ============================================================
-
 void song_build_dd_options(char *buf, size_t bufSize) {
     buf[0] = '\0';
     for (int i = 0; i < 16; i++) {
         if (i > 0) strncat(buf, "\n", bufSize - strlen(buf) - 1);
         char line[40];
-       snprintf(line, sizeof(line), "%d %.20s", i + 1, song_names[i]);
+        snprintf(line, sizeof(line), "%d %.20s", i + 1, song_names[i]);
         strncat(buf, line, bufSize - strlen(buf) - 1);
     }
 }
@@ -296,7 +312,7 @@ static void song_refresh_dd_options() {
 }
 
 void drum_monitor_update() {
-	    songArr_init_if_needed();
+    songArr_init_if_needed();
     if (!drum_monitor_lbl || !lv_obj_is_valid(drum_monitor_lbl)) return;
 
     uint8_t s = song_cur_song;
@@ -305,21 +321,37 @@ void drum_monitor_update() {
         return;
     }
 
-    // Se la song è in play, usa lo slot in esecuzione; altrimenti slot 0
     int slot = 0;
     if (song_playing && song_play_slot >= 0
         && song_play_slot < (int)songLen[s]) {
         slot = song_play_slot;
     }
 
-    uint8_t kit = songArr[s][SONG_COL_KIT][slot];
-    uint8_t num = songArr[s][SONG_COL_NUM][slot];
-    uint8_t rev = songArr[s][SONG_COL_REV][slot];
+    uint8_t tipo = songArr[s][SONG_COL_TIPO][slot];
+    uint8_t num  = songArr[s][SONG_COL_NUM] [slot];
+    uint8_t kit  = songArr[s][SONG_COL_KIT] [slot];
+    uint8_t rev  = songArr[s][SONG_COL_REV] [slot];
 
     if (kit > 15) kit = 15;
-    char buf[64];
-    snprintf(buf, sizeof(buf), "KIT %s  PTN %u  REV %u",
-             kit_names[kit], (unsigned)(num + 1), (unsigned)(rev + 1));
+
+    char buf[96];
+    if (tipo == 4) {
+        snprintf(buf, sizeof(buf),
+                 "POS %u   KIT %s   FLN %u   REV %u",
+                 (unsigned)(slot + 1),
+                 kit_names[kit],
+                 (unsigned)(num + 1),
+                 (unsigned)(rev + 1));
+    } else {
+        char sec = (char)('A' + tipo);
+        snprintf(buf, sizeof(buf),
+                 "POS %u   KIT %s   PTN %u %c   REV %u",
+                 (unsigned)(slot + 1),
+                 kit_names[kit],
+                 (unsigned)(num + 1),
+                 sec,
+                 (unsigned)(rev + 1));
+    }
     lv_label_set_text(drum_monitor_lbl, buf);
 }
 
@@ -337,6 +369,7 @@ static void song_song_dd_cb(lv_event_t *e) {
     song_sec_apply_visual();
     drum_monitor_update();
 }
+
 static void song_page_prev_cb(lv_event_t *e) {
     (void)e;
     if (song_cur_page > 0) song_cur_page--;
@@ -396,8 +429,7 @@ static void song_add_slot_cb(lv_event_t *e) {
     uint16_t new_idx = songLen[song_cur_song];
     songLen[song_cur_song]++;
 
-    // Eredita kit/rev dall'ultimo slot esistente (di solito è quello
-    // che l'utente vuole continuare). tipo=A, num=song corrente.
+    // Eredita kit/rev dall'ultimo slot esistente
     uint8_t prev_kit = 0, prev_rev = 0;
     if (new_idx > 0) {
         prev_kit = songArr[song_cur_song][SONG_COL_KIT][new_idx - 1];
@@ -477,122 +509,52 @@ static void song_save_btn_cb(lv_event_t *e) {
 }
 
 // ============================================================
-// Rinomina Song (window modale)
+// Rinomina Song (modal globale in Core)
 // ============================================================
+// Wrapper: la finestra locale è stata sostituita dalla modal globale.
+// Mantengo la firma per non toccare lvglGrafPages.cpp.
 void song_close_rename_window() {
-    if (song_rename_win) {
-        lv_obj_del(song_rename_win);
-        song_rename_win = nullptr;
-        song_rename_ta  = nullptr;
-    }
+    close_rename_modal();
 }
 
-static void song_rename_confirm(lv_event_t *e) {
-    (void)e;
-    if (!song_rename_ta) return;
-    const char *name = lv_textarea_get_text(song_rename_ta);
-    if (strlen(name) > 0) {
-        strncpy(song_names[song_rename_idx], name, SONG_NAME_LEN - 1);
-        song_names[song_rename_idx][SONG_NAME_LEN - 1] = '\0';
-        song_refresh_dd_options();
-        // Aggiorna anche il dropdown in pagina DRUM, se esiste
-        if (drum_song_dd && lv_obj_is_valid(drum_song_dd)) {
-            static char opts[512];
-            song_build_dd_options(opts, sizeof(opts));
-            int sel = lv_dropdown_get_selected(drum_song_dd);
-            lv_dropdown_set_options(drum_song_dd, opts);
-            lv_dropdown_set_selected(drum_song_dd, sel);
-            lv_dropdown_set_symbol(drum_song_dd, NULL);
-        }
-    }
-    song_close_rename_window();
-}
+// Callback applicata dalla modal quando l'utente conferma.
+// user_data = indice song (0..15) come intptr_t.
+static void song_rename_apply(const char *new_name, void *user_data) {
+    if (!new_name || strlen(new_name) == 0) return;
+    int idx = (int)(intptr_t)user_data;
+    if (idx < 0 || idx >= 16) return;
 
-static void song_rename_cancel(lv_event_t *e) {
-    (void)e;
-    song_close_rename_window();
+    strncpy(song_names[idx], new_name, SONG_NAME_LEN - 1);
+    song_names[idx][SONG_NAME_LEN - 1] = '\0';
+
+    // Aggiorna il dropdown nella pagina SONG
+    song_refresh_dd_options();
+
+    // Aggiorna anche il dropdown nella pagina DRUM, se esiste
+    if (drum_song_dd && lv_obj_is_valid(drum_song_dd)) {
+        static char opts[512];
+        song_build_dd_options(opts, sizeof(opts));
+        int sel = lv_dropdown_get_selected(drum_song_dd);
+        lv_dropdown_set_options(drum_song_dd, opts);
+        lv_dropdown_set_selected(drum_song_dd, sel);
+        lv_dropdown_set_symbol(drum_song_dd, NULL);
+    }
 }
 
 static void song_rename_btn_cb(lv_event_t *e) {
     (void)e;
-    if (song_rename_win) return;
-    song_rename_idx = song_cur_song;
-
-    song_rename_win = lv_win_create(lv_scr_act(), 0);
-    lv_obj_set_size(song_rename_win, 580, 360);
-    lv_obj_set_pos(song_rename_win, 110, 15);
-    lv_obj_set_style_bg_color(song_rename_win, lv_color_hex(0x111111), 0);
-    lv_obj_set_style_border_color(song_rename_win,
-                                  lv_color_hex(0x00DD00), 0);
-    lv_obj_set_style_border_width(song_rename_win, 2, 0);
-    lv_obj_set_style_radius(song_rename_win, 8, 0);
-
-    lv_obj_t *client = lv_win_get_content(song_rename_win);
-    lv_obj_set_style_pad_all(client, 10, 0);
-    lv_obj_set_style_bg_color(client, lv_color_hex(0x000000), 0);
-    lv_obj_set_flex_flow(client, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(client, 10, 0);
-
-    lv_obj_t *lbl = lv_label_create(client);
-    lv_label_set_text(lbl, "Rinomina Song");
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
-
-    song_rename_ta = lv_textarea_create(client);
-    lv_obj_set_size(song_rename_ta, 460, 45);
-    lv_obj_set_style_bg_color(song_rename_ta, lv_color_hex(0x222222), 0);
-    lv_obj_set_style_text_color(song_rename_ta, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(song_rename_ta, 1, 0);
-    lv_obj_set_style_border_color(song_rename_ta, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_font(song_rename_ta, &lv_font_montserrat_18, 0);
-    lv_textarea_set_text(song_rename_ta, song_names[song_rename_idx]);
-    lv_textarea_set_max_length(song_rename_ta, SONG_NAME_LEN - 1);
-    lv_textarea_set_one_line(song_rename_ta, true);
-
-    lv_obj_t *kb = lv_keyboard_create(client);
-    lv_obj_set_size(kb, 550, 200);
-    lv_obj_set_style_text_font(kb, &lv_font_montserrat_18, 0);
-    lv_keyboard_set_textarea(kb, song_rename_ta);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x222222), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x444444), LV_STATE_PRESSED);
-    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-
-    lv_obj_t *btn_cont = lv_obj_create(client);
-    lv_obj_set_size(btn_cont, 460, 50);
-    lv_obj_set_style_bg_opa(btn_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(btn_cont, 0, 0);
-    lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(btn_cont, 20, 0);
-
-    lv_obj_t *ok = lv_btn_create(btn_cont);
-    lv_obj_set_size(ok, 120, 40);
-    lv_obj_set_style_bg_color(ok, lv_color_hex(0x1A6B4A), 0);
-    lv_obj_t *ok_l = lv_label_create(ok);
-    lv_label_set_text(ok_l, "OK");
-    lv_obj_set_style_text_color(ok_l, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(ok_l);
-    lv_obj_add_event_cb(ok, song_rename_confirm, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *cancel = lv_btn_create(btn_cont);
-    lv_obj_set_size(cancel, 120, 40);
-    lv_obj_set_style_bg_color(cancel, lv_color_hex(0x6B1A1A), 0);
-    lv_obj_t *cn_l = lv_label_create(cancel);
-    lv_label_set_text(cn_l, "Annulla");
-    lv_obj_set_style_text_color(cn_l, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(cn_l);
-    lv_obj_add_event_cb(cancel, song_rename_cancel, LV_EVENT_CLICKED, NULL);
+    if (rename_modal_is_open()) return;
+    open_rename_modal("Rinomina Song",
+                      song_names[song_cur_song],
+                      SONG_NAME_LEN - 1,
+                      0x00DD00,
+                      song_rename_apply,
+                      (void*)(intptr_t)song_cur_song);
 }
+
 // ============================================================
 // Play song
 // ============================================================
-
 static void song_update_cursor_position() {
     if (!song_cursor || !lv_obj_is_valid(song_cursor)) return;
     if (song_play_slot < 0) return;
@@ -608,10 +570,6 @@ static void song_update_cursor_position() {
     int r = slot_in_page / SONG_COLS;
     int c = slot_in_page % SONG_COLS;
 
-    // Il cursore è figlio di frame (padding 0).
-    // Slot: (c*slot_w + gap/2, r*slot_h + gap/2), dim 88×84.
-    // Cursore: dim 92×88.
-    // Per centrarlo sullo slot: x = c*slot_w, y = r*slot_h.
     int x = c * song_slot_w;
     int y = r * song_slot_h;
     lv_obj_set_pos(song_cursor, x, y);
@@ -643,8 +601,21 @@ static void song_play_tick_cb(lv_timer_t *t) {
         return;
     }
 
-    // Trigger dei meter MIX per lo step corrente
+    // Meter MIX (DRUM)
     drum_mix_meters_trigger_from_slot(song_play_slot, (uint8_t)song_play_step);
+
+    // Se siamo in PTN, sincronizza la pagina
+    if (g_current_page && strcmp(g_current_page, "SEQ") == 0) {
+        drum_meters_update_from_slot(song_play_slot, (uint8_t)song_play_step);
+
+        // Aggiorna cursore PTN allo step corrente
+        drum_step_counter = (uint8_t)song_play_step;
+        if (drum_cursor && lv_obj_is_valid(drum_cursor)) {
+            lv_obj_set_x(drum_cursor,
+                drum_grid_x + drum_cursor_off_x
+                + song_play_step * drum_cell_w);
+        }
+    }
 
     // Avanza lo step
     song_play_step++;
@@ -653,19 +624,21 @@ static void song_play_tick_cb(lv_timer_t *t) {
         song_play_slot++;
 
         if (song_play_slot >= (int)songLen[song_cur_song]) {
-            // Fine song raggiunta
             if (song_loop) {
-                // Loop: riparte da capo
                 song_play_slot = 0;
                 song_update_ui_for_slot(0);
             } else {
-                // 1Shot: stop
                 song_stop();
                 return;
             }
         } else {
-            // Slot successivo: aggiorna dropdown KIT/REV + evidenzia tipo
             song_update_ui_for_slot(song_play_slot);
+        }
+
+        // Cambio slot: se PTN è aperta, ricarica la griglia
+        if (g_current_page && strcmp(g_current_page, "SEQ") == 0) {
+            extern void drum_load_song_slot_into_view();
+            drum_load_song_slot_into_view();
         }
     }
 
@@ -685,26 +658,28 @@ void song_stop() {
     song_play_step = 0;
 
     if (song_play_lbl && lv_obj_is_valid(song_play_lbl))
-        lv_label_set_text(song_play_lbl, "Play");
+        lv_label_set_text(song_play_lbl, LV_SYMBOL_PLAY);
     if (song_play_btn && lv_obj_is_valid(song_play_btn))
         lv_obj_set_style_border_color(song_play_btn,
             lv_color_hex(0x00FF00), 0);
-			
+
     if (drum_play_song_lbl && lv_obj_is_valid(drum_play_song_lbl))
-        lv_label_set_text(drum_play_song_lbl, "Play");
+        lv_label_set_text(drum_play_song_lbl, LV_SYMBOL_PLAY);
     if (drum_play_song_btn && lv_obj_is_valid(drum_play_song_btn))
         lv_obj_set_style_border_color(drum_play_song_btn,
             lv_color_hex(0x00FF00), 0);
-			    drum_mix_meters_reset();
+
+    drum_mix_meters_reset();
+
+    if (g_current_page && strcmp(g_current_page, "SEQ") == 0) {
+        extern void drum_reload_manual_view();
+        drum_reload_manual_view();
+    }
     song_sec_apply_visual();
 }
 
 void song_play() {
-	    songArr_init_if_needed();
-    Serial.printf("[PLAY] song_play: songLen=%u song_playing=%d\n",
-                  (unsigned)songLen[song_cur_song], (int)song_playing);
-    if (songLen[song_cur_song] == 0) { Serial.println("[PLAY] songLen 0"); return; }
-    if (song_playing) { Serial.println("[PLAY] gia' playing"); return; }
+    songArr_init_if_needed();
 
     song_playing   = true;
     song_play_slot = 0;
@@ -714,13 +689,13 @@ void song_play() {
     song_update_cursor_position();
 
     if (song_play_lbl && lv_obj_is_valid(song_play_lbl))
-        lv_label_set_text(song_play_lbl, "Stop");
+        lv_label_set_text(song_play_lbl, LV_SYMBOL_STOP);
     if (song_play_btn && lv_obj_is_valid(song_play_btn))
         lv_obj_set_style_border_color(song_play_btn,
             lv_color_hex(0x888888), 0);
 
     if (drum_play_song_lbl && lv_obj_is_valid(drum_play_song_lbl))
-        lv_label_set_text(drum_play_song_lbl, "Stop");
+        lv_label_set_text(drum_play_song_lbl, LV_SYMBOL_STOP);
     if (drum_play_song_btn && lv_obj_is_valid(drum_play_song_btn))
         lv_obj_set_style_border_color(drum_play_song_btn,
             lv_color_hex(0x888888), 0);
@@ -750,6 +725,7 @@ static void song_play_btn_cb(lv_event_t *e) {
     if (song_playing) song_stop();
     else              song_play();
 }
+
 static void song_loop_btn_cb(lv_event_t *e) {
     (void)e;
     song_loop = !song_loop;
@@ -757,14 +733,12 @@ static void song_loop_btn_cb(lv_event_t *e) {
         lv_label_set_text(song_loop_lbl, song_loop ? "Loop" : "1Shot");
     }
 }
+
 void drum_play_song_btn_cb(lv_event_t *e) {
     (void)e;
-    Serial.printf("[PLAY] cb: song_playing=%d\n", (int)song_playing);
     if (song_playing) song_stop();
     else              song_play();
-    Serial.printf("[PLAY] cb fine: song_playing=%d\n", (int)song_playing);
 }
-
 
 // ============================================================
 // Pagina SONG
@@ -933,8 +907,8 @@ void song_page_create(lv_obj_t *parent) {
     int gap    = 4;
     int cw     = slot_w - gap;
     int ch     = slot_h - gap;
-	
-	    song_grid_x = GX;
+
+    song_grid_x = GX;
     song_grid_y = GY;
     song_slot_w = slot_w;
     song_slot_h = slot_h;
@@ -1041,25 +1015,18 @@ void song_page_create(lv_obj_t *parent) {
     lv_obj_clear_flag(song_cursor, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(song_cursor, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(song_cursor);
+
     // ========================================================
-    // BOTTOM ROW: Home | ◄ | 1/N | ► | + | - | Rinomina | Salva
+    // BOTTOM ROW: Home | ◄ | 1/N | ► | + | - | Play | Loop | Rinomina | Salva
     // ========================================================
 
-    lv_obj_t *home = lv_btn_create(parent);
-    lv_obj_set_size(home, 55, 45);
-    lv_obj_set_pos(home, 5, 415);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(home, 6, 0);
-    lv_obj_set_style_border_width(home, 2, 0);
-    lv_obj_set_style_border_color(home, lv_color_hex(0x9B59B6), 0);
-    lv_obj_t *home_lbl = lv_label_create(home);
-    lv_label_set_text(home_lbl, LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_color(home_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(home_lbl, &lv_font_montserrat_24, 0);
-    lv_obj_center(home_lbl);
-    lv_obj_add_event_cb(home, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)-3);
+    // ---- Home ----
+    mkbtn(parent, 5, 415, 55, 45,
+          0x9B59B6, LV_SYMBOL_LEFT,
+          &lv_font_montserrat_24,
+          eb, -3, 6, 2);
 
+    // ---- Prev ----
     lv_obj_t *prev = lv_btn_create(parent);
     lv_obj_set_size(prev, 45, 45);
     lv_obj_set_pos(prev, 70, 415);
@@ -1081,6 +1048,7 @@ void song_page_create(lv_obj_t *parent) {
     lv_obj_set_style_text_font(song_page_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_pos(song_page_lbl, 122, 427);
 
+    // ---- Next ----
     lv_obj_t *next = lv_btn_create(parent);
     lv_obj_set_size(next, 45, 45);
     lv_obj_set_pos(next, 170, 415);
@@ -1095,39 +1063,18 @@ void song_page_create(lv_obj_t *parent) {
     lv_obj_set_style_text_font(nl, &lv_font_montserrat_20, 0);
     lv_obj_center(nl);
     lv_obj_add_event_cb(next, song_page_next_cb, LV_EVENT_CLICKED, NULL);
-	
 
     // ---- + ----
-    lv_obj_t *add_btn = lv_btn_create(parent);
-    lv_obj_set_size(add_btn, 50, 45);
-    lv_obj_set_pos(add_btn, 230, 415);
-    lv_obj_set_style_bg_color(add_btn, lv_color_hex(0x1A6B4A), 0);
-    lv_obj_set_style_bg_color(add_btn, lv_color_hex(0x0F4A2E), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(add_btn, 6, 0);
-    lv_obj_set_style_border_width(add_btn, 2, 0);
-    lv_obj_set_style_border_color(add_btn, lv_color_hex(0x00FF88), 0);
-    lv_obj_t *al = lv_label_create(add_btn);
-    lv_label_set_text(al, "+");
-    lv_obj_set_style_text_color(al, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(al, &lv_font_montserrat_24, 0);
-    lv_obj_center(al);
-    lv_obj_add_event_cb(add_btn, song_add_slot_cb, LV_EVENT_CLICKED, NULL);
+    mkbtn(parent, 230, 415, 50, 45,
+          0x00FF88, "+",
+          &lv_font_montserrat_24,
+          song_add_slot_cb, 0, 6, 2);
 
     // ---- − ----
-    lv_obj_t *rm_btn = lv_btn_create(parent);
-    lv_obj_set_size(rm_btn, 50, 45);
-    lv_obj_set_pos(rm_btn, 290, 415);
-    lv_obj_set_style_bg_color(rm_btn, lv_color_hex(0x6B1A1A), 0);
-    lv_obj_set_style_bg_color(rm_btn, lv_color_hex(0x4A0F0F), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(rm_btn, 6, 0);
-    lv_obj_set_style_border_width(rm_btn, 2, 0);
-    lv_obj_set_style_border_color(rm_btn, lv_color_hex(0xFF4444), 0);
-    lv_obj_t *rl = lv_label_create(rm_btn);
-    lv_label_set_text(rl, "-");
-    lv_obj_set_style_text_color(rl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(rl, &lv_font_montserrat_24, 0);
-    lv_obj_center(rl);
-    lv_obj_add_event_cb(rm_btn, song_rm_slot_cb, LV_EVENT_CLICKED, NULL);
+    mkbtn(parent, 290, 415, 50, 45,
+          0xFF4444, "-",
+          &lv_font_montserrat_24,
+          song_rm_slot_cb, 0, 6, 2);
 
     // ---- Play/Stop ----
     song_play_btn = lv_btn_create(parent);
@@ -1139,9 +1086,9 @@ void song_page_create(lv_obj_t *parent) {
     lv_obj_set_style_border_width(song_play_btn, 2, 0);
     lv_obj_set_style_border_color(song_play_btn, lv_color_hex(0x00FF00), 0);
     song_play_lbl = lv_label_create(song_play_btn);
-    lv_label_set_text(song_play_lbl, "Play");
+    lv_label_set_text(song_play_lbl, LV_SYMBOL_PLAY);
     lv_obj_set_style_text_color(song_play_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(song_play_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(song_play_lbl, &lv_font_montserrat_24, 0);
     lv_obj_center(song_play_lbl);
     lv_obj_add_event_cb(song_play_btn, song_play_btn_cb, LV_EVENT_CLICKED, NULL);
 
@@ -1162,36 +1109,16 @@ void song_page_create(lv_obj_t *parent) {
     lv_obj_add_event_cb(song_loop_btn, song_loop_btn_cb, LV_EVENT_CLICKED, NULL);
 
     // ---- Rinomina ----
-    lv_obj_t *rn_btn = lv_btn_create(parent);
-    lv_obj_set_size(rn_btn, 120, 45);
-    lv_obj_set_pos(rn_btn, 520, 415);
-    lv_obj_set_style_bg_color(rn_btn, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(rn_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(rn_btn, 6, 0);
-    lv_obj_set_style_border_width(rn_btn, 2, 0);
-    lv_obj_set_style_border_color(rn_btn, lv_color_hex(0x00DD00), 0);
-    lv_obj_t *rn_lbl = lv_label_create(rn_btn);
-    lv_label_set_text(rn_lbl, "RINOMINA");
-    lv_obj_set_style_text_color(rn_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(rn_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(rn_lbl);
-    lv_obj_add_event_cb(rn_btn, song_rename_btn_cb, LV_EVENT_CLICKED, NULL);
+    mkbtn(parent, 520, 415, 120, 45,
+          0x00DD00, "RINOMINA",
+          &lv_font_montserrat_14,
+          song_rename_btn_cb, 0, 6, 2);
 
     // ---- Salva ----
-    lv_obj_t *save_btn = lv_btn_create(parent);
-    lv_obj_set_size(save_btn, 110, 45);
-    lv_obj_set_pos(save_btn, 655, 415);
-    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0xAA0000), 0);
-    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0xDD2222), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(save_btn, 6, 0);
-    lv_obj_set_style_border_width(save_btn, 2, 0);
-    lv_obj_set_style_border_color(save_btn, lv_color_hex(0xFF4444), 0);
-    lv_obj_t *save_lbl = lv_label_create(save_btn);
-    lv_label_set_text(save_lbl, "Salva");
-    lv_obj_set_style_text_color(save_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(save_lbl, &lv_font_montserrat_16, 0);
-    lv_obj_center(save_lbl);
-    lv_obj_add_event_cb(save_btn, song_save_btn_cb, LV_EVENT_CLICKED, NULL);
+    mkbtn(parent, 655, 415, 110, 45,
+          0xFF4444, "Salva",
+          &lv_font_montserrat_16,
+          song_save_btn_cb, 0, 6, 2);
 
     song_grid_update_all();
     song_sec_apply_visual();

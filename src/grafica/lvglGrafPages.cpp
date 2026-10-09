@@ -7,24 +7,29 @@
 #include "lvgl_v8_port.h"
 #include "src/preset/preset_ui.h"
 
+
+const char *g_current_page = nullptr;
 // ============================================================
 // LIFECYCLE: reset + prologo comune
 // ============================================================
-void reset_ui_pointers() {
-    DBG("reset_ui_pointers\n");
+// ============================================================
+// RESET — funzioni statiche per area
+// ============================================================
 
+// ---- Core: slider base, shape, arc, pot, preset ----
+static void reset_core_widgets() {
     for (int i = 0; i < MAX_SLIDERS; i++) {
         arr[i]=0; slider_objs[i]=0; crs[i]=0; last[i]=0;
     }
     g.shape_arrow_A  = g.shape_arrow_B  = 0;
     g.shape_slider_A = g.shape_slider_B = 0;
-	
-	       for (int i = 0; i < 2; i++) {
+
+    for (int i = 0; i < 2; i++) {
         shape_data[i].cat_btn     = nullptr;
         shape_data[i].cat_btn_lbl = nullptr;
-        shape_data[i].edit_btn    = nullptr;   // NUOVO
+        shape_data[i].edit_btn    = nullptr;
     }
-	
+
     for (int i = 0; i < MAX_ARCS; i++) {
         g.arc_obj[i] = g.arc_arrow[i] = g.arc_label_value[i] = g.arc_label_p[i] = NULL;
     }
@@ -32,21 +37,30 @@ void reset_ui_pointers() {
 
     preset_dropdown_A = preset_dropdown_B = NULL;
     preset_label_A    = preset_label_B    = NULL;
+}
 
+// ---- PLAY: timeline, meters, env charts ----
+static void reset_play_page() {
     timeline_obj = timeline_bar_bg = timeline_bar_fill = NULL;
     timeline_cursor = timeline_label_cur = timeline_label_tot = NULL;
-    timeline_btn_init = timeline_btn_stop = timeline_btn_play = nullptr;
+    timeline_btn_init  = timeline_btn_play = nullptr;
     timeline_playing  = false;
     timeline_demo_ms  = 0;
 
     env_chart_A = env_chart_B = nullptr;
     env_serie_A = env_serie_B = nullptr;
     env_serie_tgt_A = env_serie_tgt_B = nullptr;
+}
 
+// ---- Keyboard (pagina MIDI) ----
+static void reset_keyboard_widget() {
     keyboard_obj = nullptr;
     for (int i = 0; i < KB_WHITE_KEYS; i++) kb_white[i] = nullptr;
     for (int i = 0; i < KB_BLACK_KEYS; i++) kb_black[i] = nullptr;
+}
 
+// ---- DRUM: griglia PTN (celle, dot, cursore) ----
+static void reset_drum_grid() {
     drum_pattern_label = nullptr;
     for (int r = 0; r < DRUM_ROWS; r++)
         for (int c = 0; c < DRUM_COLS; c++) {
@@ -54,33 +68,116 @@ void reset_ui_pointers() {
             drum_dot [r][c] = nullptr;
         }
     drum_cursor       = nullptr;
-    drum_play_btn     = nullptr;
-    drum_play_lbl     = nullptr;
     drum_playing      = false;
     drum_step_counter = 0;
+}
 
-       sB_vcf_btn = sB_vcf_btn_lbl = nullptr;
+// ---- DRUM/PTN: controlli specifici della pagina SEQ ----
+static void reset_drum_ptn_controls() {
+    drum_play_btn = nullptr;
+    drum_play_lbl = nullptr;
+
+    for (int i = 0; i < 4; i++) {
+        drum_sec_btn[i] = nullptr;
+        drum_sec_lbl[i] = nullptr;
+    }
+    drum_ptn_dd = nullptr;
+    drum_fl_btn = nullptr;
+    drum_fl_lbl = nullptr;
+
+    for (int r = 0; r < DRUM_ROWS; r++) drum_row_meter[r] = nullptr;
+}
+
+// ---- DRUM main: BPM, Swing, Mix, monitor, Play/Stop song ----
+static void reset_drum_main_controls() {
+    drum_bpm_btn       = nullptr;
+    drum_bpm_lbl       = nullptr;
+    drum_swing_slider  = nullptr;
+    drum_swing_val_lbl = nullptr;
+    // drum_bpm e drum_swing NON si resettano (persistono)
+
+    for (int i = 0; i < DRUM_MIX_COUNT; i++) {
+        drum_mix_slider[i]  = nullptr;
+        drum_mix_val_lbl[i] = nullptr;
+    }
+
+    drum_song_dd       = nullptr;
+    drum_monitor_lbl   = nullptr;
+    drum_play_song_btn = nullptr;
+    drum_play_song_lbl = nullptr;
+}
+
+// ---- DRUM/SONG: editor song ----
+static void reset_drum_song_page() {
+    song_song_dd  = nullptr;
+    song_fln_dd   = nullptr;
+    song_kit_dd   = nullptr;
+    song_rev_dd   = nullptr;
+    song_page_lbl = nullptr;
+
+    for (int i = 0; i < 4; i++) {
+        song_sec_btn[i] = nullptr;
+        song_sec_lbl[i] = nullptr;
+    }
+    for (int r = 0; r < SONG_ROWS; r++)
+        for (int c = 0; c < SONG_COLS; c++) {
+            song_slot[r][c]         = nullptr;
+            song_slot_lbl[r][c]     = nullptr;
+            song_slot_kit_lbl[r][c] = nullptr;
+            song_slot_num_lbl[r][c] = nullptr;
+            song_slot_rev_lbl[r][c] = nullptr;
+        }
+    song_sel_slot = -1;
+    song_play_btn = nullptr;
+    song_play_lbl = nullptr;
+    song_cursor   = nullptr;
+
+    song_loop_btn = nullptr;
+    song_loop_lbl = nullptr;
+    // song_loop NON si resetta (persiste tra pagine)
+    // song_playing / song_play_slot / song_play_step sono static, no reset
+    // songArr, songLen, song_names, song_cur_song, song_cur_page persistono
+}
+
+// ---- DRUM/KIT: dropdown voci + dropdown kit/rev ----
+static void reset_drum_kit_page() {
+    kit_preset_dd = nullptr;
+    kit_rev_dd = nullptr;
+    for (int i = 0; i < 9; i++) kit_voice_dd[i] = nullptr;
+    // kit_cur_kit NON si resetta (persiste tra pagine)
+    // kit_names[] è array di char, non puntatore: no reset
+}
+
+// ---- DRUM/REV: dropdown + toggle ----
+static void reset_drum_rev_page() {
+    rev_mode_btn  = nullptr;
+    rev_mode_lbl  = nullptr;
+    rev_preset_dd = nullptr;
+    // rev_mode  NON si resetta (persiste)
+    // rev_preset NON si resetta (persiste)
+    // rev_slider_obj[], rev_val[], rev_val_lbl[] sono static in lvglGrafRev.cpp,
+    // non li tocchiamo da qui
+}
+
+// ---- SynthB VCF (FLT/WOV) ----
+static void reset_vcfb_page() {
+    sB_vcf_btn = sB_vcf_btn_lbl = nullptr;
     sB_sub_btn = sB_sub_lbl = nullptr;
     sB_filter_type_btn = sB_filter_type_lbl = nullptr;
+
     for (int i = 0; i < 3; i++) {
-        sB_vcf_arc[i]       = nullptr;
-        sB_vcf_arc_dot[i]   = nullptr;
-        sB_vcf_arc_lbl[i]   = nullptr;
-        sB_vcf_val_lbl[i]   = nullptr;
-        sB_vcf_top_lbl[i]   = nullptr;
+        sB_vcf_arc[i]     = nullptr;
+        sB_vcf_arc_dot[i] = nullptr;
+        sB_vcf_arc_lbl[i] = nullptr;
+        sB_vcf_val_lbl[i] = nullptr;
+        sB_vcf_top_lbl[i] = nullptr;
         for (int t = 0; t < VCF_TICK_COUNT; t++)
             sB_vcf_tick[i][t] = nullptr;
         for (int t = 0; t < VCF_SCALE_MAX; t++)
             sB_vcf_scale_lbl[i][t] = nullptr;
     }
-    sB_wov_env_att_dd = sB_wov_env_sus_dd = sB_wov_env_rel_dd = nullptr;
-    sB_wov_env_att_lbl = sB_wov_env_sus_lbl = sB_wov_env_rel_lbl = nullptr;
 
-    pot_size_FV1 = pot_LF_FV1 = pot_HF_FV1 = nullptr;
-    fx_rev_btn = fx_rev_lbl = fx_preset_dd = fx_save_btn = nullptr;
-	    sB_vcf_env_chart = nullptr;
-    sB_vcf_env_serie = nullptr;
-	     for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; i++) {
         sB_vcfb_arc[i]     = nullptr;
         sB_vcfb_lbl[i]     = nullptr;
         sB_vcfb_val_lbl[i] = nullptr;
@@ -88,70 +185,49 @@ void reset_ui_pointers() {
         sB_vcfb_target[i]  = 50;
         sB_vcfb_last[i]    = 0;
         sB_vcfb_crossed[i] = false;
-        for (int t = 0; t < VCF_TICK_COUNT; t++)  sB_vcfb_tick[i][t] = nullptr;
+        for (int t = 0; t < VCF_TICK_COUNT; t++)
+            sB_vcfb_tick[i][t] = nullptr;
     }
-	   
-       // -------------------------------------------  SONG
-       song_song_dd  = nullptr;
-    song_fln_dd   = nullptr;
-    song_kit_dd   = nullptr;
-    song_rev_dd   = nullptr;
-    song_page_lbl = nullptr;
-    for (int i = 0; i < 4; i++) {
-        song_sec_btn[i] = nullptr;
-        song_sec_lbl[i] = nullptr;
-    }
-    for (int r = 0; r < SONG_ROWS; r++)
-        for (int c = 0; c < SONG_COLS; c++) {
-            song_slot[r][c]             = nullptr;
-            song_slot_lbl[r][c]         = nullptr;
-            song_slot_kit_lbl[r][c]     = nullptr;
-            song_slot_num_lbl[r][c]     = nullptr;
-            song_slot_rev_lbl[r][c]     = nullptr;
-        }
-    song_sel_slot = -1;
-    // song_cur_song, song_cur_page, songArr, songLen, song_names persistono
-	    song_play_btn = nullptr;
-    song_play_lbl = nullptr;
-    song_cursor   = nullptr;
-    // song_playing / song_play_slot / song_play_step sono static, no reset
-		//--- -------------------------------------------------------------REV
-		    rev_mode_btn = nullptr;
-    rev_mode_lbl = nullptr;
-    // rev_mode NON si resetta (persiste)
-	    rev_preset_dd = nullptr;
-    // rev_preset NON si resetta (persiste)
-	    kit_preset_dd = nullptr;
-    kit_rev_dd = nullptr;
-    for (int i = 0; i < 9; i++) kit_voice_dd[i] = nullptr;
-    // kit_cur_kit NON si resetta (persiste tra pagine)
-	//------------------------- DRUM ------------------------------
-	 for (int i = 0; i < 4; i++) {
-        drum_sec_btn[i] = nullptr;
-        drum_sec_lbl[i] = nullptr;
-    }
-      for (int r = 0; r < DRUM_ROWS; r++) drum_row_meter[r] = nullptr;
-    drum_ptn_dd = nullptr;
-	    drum_fl_btn = nullptr;
-    drum_fl_lbl = nullptr;
-	    drum_bpm_btn       = nullptr;
-    drum_bpm_lbl       = nullptr;
-    drum_swing_slider  = nullptr;
-    drum_swing_val_lbl = nullptr;
-    // drum_bpm e drum_swing NON si resettano (persistono)
-	    for (int i = 0; i < DRUM_MIX_COUNT; i++) {
-        drum_mix_slider[i]  = nullptr;
-        drum_mix_val_lbl[i] = nullptr;
-    }
-       drum_song_dd     = nullptr;
-    drum_monitor_lbl = nullptr;
-	    drum_play_song_btn = nullptr;
-    drum_play_song_lbl = nullptr;
-	    song_loop_btn = nullptr;
-    song_loop_lbl = nullptr;
-    // song_loop NON si resetta (persiste tra pagine)
+
+    sB_wov_env_att_dd = sB_wov_env_sus_dd = sB_wov_env_rel_dd = nullptr;
+    sB_wov_env_att_lbl = sB_wov_env_sus_lbl = sB_wov_env_rel_lbl = nullptr;
+
+    sB_vcf_env_chart = nullptr;
+    sB_vcf_env_serie = nullptr;
 }
 
+// ---- FX / FV-1 ----
+static void reset_fx_page() {
+    pot_size_FV1 = pot_LF_FV1 = pot_HF_FV1 = nullptr;
+    fx_rev_btn = fx_rev_lbl = fx_preset_dd = fx_save_btn = nullptr;
+}
+
+// ============================================================
+// RESET principale — orchestratore
+// ============================================================
+void reset_ui_pointers() {
+    DBG("reset_ui_pointers\n");
+
+    reset_core_widgets();
+    reset_play_page();
+    reset_keyboard_widget();
+
+    reset_drum_grid();
+    reset_drum_ptn_controls();
+    reset_drum_main_controls();
+    reset_drum_song_page();
+    reset_drum_kit_page();
+    reset_drum_rev_page();
+
+    reset_vcfb_page();
+    reset_fx_page();
+	    dly_reset_pointers();
+		chorus_reset_pointers();  // NEW
+    phaser_reset_pointers();  // NEW
+	    reset_vcfb_page();
+    vcfA_reset_pointers();
+    fmEdit_reset_pointers();
+}
 void page_begin(const char *title) {
     DBG("page_begin: %s\n", title ? title : "HOME");
 
@@ -201,6 +277,7 @@ static lv_obj_t* create_preset_label(lv_obj_t *parent, lv_obj_t *title_lbl, bool
 // HOME
 // ============================================================
 void create_home() {
+	  g_current_page = nullptr;
     page_begin(nullptr);
 
     if (g.page) { lv_obj_del(g.page); g.page = 0; }
@@ -210,6 +287,7 @@ void create_home() {
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
+	    lv_obj_set_style_pad_all(m, 0, 0);
     lv_obj_set_style_radius(m, 0, 0);
     lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
     lv_obj_set_style_border_width(m, 0, 0);
@@ -301,6 +379,7 @@ static void disc_btn_click(lv_event_t *e) {
 // CREATE PAGE
 // ============================================================
 void create_page(const char *title) {
+	g_current_page = title;
     page_begin(title);
 
     if (g.page) { lv_obj_del(g.page); g.page = 0; }
@@ -309,7 +388,7 @@ void create_page(const char *title) {
 
     lv_obj_t *m = lv_obj_create(lv_scr_act());
     lv_obj_set_size(m, lv_disp_get_hor_res(0), lv_disp_get_ver_res(0));
-	
+	    lv_obj_set_style_pad_all(m, 0, 0);
 			  
     lv_obj_set_style_radius(m, 0, 0);
     lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
@@ -318,17 +397,29 @@ void create_page(const char *title) {
     g.page = m;
 
         lv_obj_t *t = NULL;
+		
     if (strncmp(title, "DCO", 3) != 0
         && strcmp(title, "SEQ")  != 0
         && strcmp(title, "SONG") != 0
-		&& strcmp(title, "DRUM") != 0) {
+		&& strcmp(title, "DRUM") != 0
+		&& strcmp(title, "CHORUS") != 0
+		&& strcmp(title, "PHASER") != 0
+		&& strcmp(title, "FM Edit") != 0
+		&& strncmp(title, "DLY", 3) != 0) {
         t = lv_label_create(m);
         lv_label_set_text(t, title);
         lv_obj_set_style_text_font(t, &lv_font_montserrat_32, 0);
         lv_obj_set_style_text_color(t, lv_color_hex(0xFFFFFF), 0);
         lv_obj_align(t, LV_ALIGN_TOP_LEFT, 10, 5);
     }
-
+	//TEST
+   /*  Serial.printf("[PAGE] m size=%dx%d content=%dx%d pad=%d,%d,%d,%d\n",
+                  lv_obj_get_width(m), lv_obj_get_height(m),
+                  lv_obj_get_content_width(m), lv_obj_get_content_height(m),
+                  lv_obj_get_style_pad_left(m, 0),
+                  lv_obj_get_style_pad_right(m, 0),
+                  lv_obj_get_style_pad_top(m, 0),
+                  lv_obj_get_style_pad_bottom(m, 0)); */
     // ---------------- PLAY ----------------
     if (strcmp(title, "PLAY") == 0) {
         g.play = 1;
@@ -344,7 +435,6 @@ void create_page(const char *title) {
         timeline_playing = false;
         timeline_demo_ms = 0;
         update_timeline(0, 60000);
-        tl_set_buttons(1);
 
         if (!tdt) {
             tdt = lv_timer_create([](lv_timer_t*){
@@ -566,11 +656,12 @@ void create_page(const char *title) {
         home_btn(m, -1);
     }        // ---- PTN (centrato) ----
      
-    // ---------------- DRUM ----------------
+     // ---------------- DRUM ----------------
     else if (strcmp(title, "DRUM") == 0) {
-		        drum_seqArr_init_if_needed();
-		        songArr_init_if_needed();
-	// ---- Dropdown SNG (in alto a sinistra, sostituisce il titolo) ----
+        drum_seqArr_init_if_needed();
+        songArr_init_if_needed();
+
+        // ---- Dropdown SNG (in alto a sinistra, sostituisce il titolo) ----
         drum_song_dd = lv_dropdown_create(m);
         lv_obj_set_size(drum_song_dd, 150, 45);
         lv_obj_set_pos(drum_song_dd, 5, 5);
@@ -580,7 +671,7 @@ void create_page(const char *title) {
         lv_obj_set_style_border_color(drum_song_dd, lv_color_hex(0x00DD00), 0);
         lv_obj_set_style_radius(drum_song_dd, 6, 0);
         lv_obj_set_style_text_color(drum_song_dd, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(drum_song_dd, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(drum_song_dd, &lv_font_montserrat_20, 0);
         lv_obj_set_style_pad_left(drum_song_dd, 6, 0);
         lv_obj_set_style_pad_right(drum_song_dd, 4, 0);
         {
@@ -593,7 +684,7 @@ void create_page(const char *title) {
         {
             lv_obj_t *l = lv_dropdown_get_list(drum_song_dd);
             if (l) {
-                lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+                lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
                 lv_obj_set_style_bg_color(l, lv_color_hex(0x1A1A2E), 0);
                 lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
                 lv_obj_set_style_max_height(l, 380, 0);
@@ -614,78 +705,23 @@ void create_page(const char *title) {
         lv_obj_set_style_text_font(drum_monitor_lbl, &lv_font_montserrat_20, 0);
         lv_obj_set_pos(drum_monitor_lbl, 170, 15);
         drum_monitor_update();
- 
-		
-		   lv_obj_t *seq_btn = lv_btn_create(m);
-        lv_obj_set_size(seq_btn, 90, 90);
-        lv_obj_set_pos(seq_btn, 300, 360);
-        lv_obj_set_style_bg_color(seq_btn, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_bg_color(seq_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(seq_btn, 8, 0);
-        lv_obj_set_style_border_width(seq_btn, 3, 0);
-        lv_obj_set_style_border_color(seq_btn, lv_color_hex(0x00AAFF), 0);
-        lv_obj_t *seq_lbl = lv_label_create(seq_btn);
-        lv_label_set_text(seq_lbl, "PTN");
-        lv_obj_set_style_text_color(seq_lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(seq_lbl, &lv_font_montserrat_18, 0);
-        lv_obj_center(seq_lbl);
-        lv_obj_add_event_cb(seq_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)30);
 
-        // ---- SONG (destra di PTN) ----
-        lv_obj_t *song_btn = lv_btn_create(m);
-        lv_obj_set_size(song_btn, 90, 90);
-        lv_obj_set_pos(song_btn, 410, 360);
-        lv_obj_set_style_bg_color(song_btn, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_bg_color(song_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(song_btn, 8, 0);
-        lv_obj_set_style_border_width(song_btn, 3, 0);
-        lv_obj_set_style_border_color(song_btn, lv_color_hex(0x00DD00), 0);
-        lv_obj_t *song_lbl = lv_label_create(song_btn);
-        lv_label_set_text(song_lbl, "SONG");
-        lv_obj_set_style_text_color(song_lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(song_lbl, &lv_font_montserrat_16, 0);
-        lv_obj_center(song_lbl);
-        lv_obj_add_event_cb(song_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)32);
-
-        // ---- KIT (arancione) ----
-        lv_obj_t *kit_btn = lv_btn_create(m);
-        lv_obj_set_size(kit_btn, 90, 90);
-        lv_obj_set_pos(kit_btn, 530, 360);
-        lv_obj_set_style_bg_color(kit_btn, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_bg_color(kit_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(kit_btn, 8, 0);
-        lv_obj_set_style_border_width(kit_btn, 3, 0);
-        lv_obj_set_style_border_color(kit_btn, lv_color_hex(0xFF8800), 0);
-        lv_obj_t *kit_lbl = lv_label_create(kit_btn);
-        lv_label_set_text(kit_lbl, "KIT");
-        lv_obj_set_style_text_color(kit_lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(kit_lbl, &lv_font_montserrat_18, 0);
-        lv_obj_center(kit_lbl);
-        lv_obj_add_event_cb(kit_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)33);
-
-        // ---- REV (rosso scuro) ----
-        lv_obj_t *rev_btn = lv_btn_create(m);
-        lv_obj_set_size(rev_btn, 90, 90);
-        lv_obj_set_pos(rev_btn, 640, 360);
-        lv_obj_set_style_bg_color(rev_btn, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_bg_color(rev_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(rev_btn, 8, 0);
-        lv_obj_set_style_border_width(rev_btn, 3, 0);
-        lv_obj_set_style_border_color(rev_btn, lv_color_hex(0xAA0000), 0);
-        lv_obj_t *rev_lbl = lv_label_create(rev_btn);
-        lv_label_set_text(rev_lbl, "REV");
-        lv_obj_set_style_text_color(rev_lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(rev_lbl, &lv_font_montserrat_18, 0);
-        lv_obj_center(rev_lbl);
-        lv_obj_add_event_cb(rev_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)34);
-
+        // ---- BPM + Swing + DRUM MIX ----
         drum_bpm_swing_create(m);
-		drum_mix_create(m);
-		
-		        // ---- Play/Stop song (a destra di home) ----
+        drum_mix_create(m);
+        drum_meter_init();
+
+        // ---- Home locale (bottom-left, 60×60, y=390) ----
+        mkbtn(m, 25, 390, 60, 60,
+              0x9B59B6, LV_SYMBOL_LEFT,
+              &lv_font_montserrat_24,
+              eb, -1, 8, 3);
+
+        // ---- Play/Stop song (x=110, 90×60) ----
+        //     Rimane manuale: la label cambia runtime (PLAY<->STOP)
         drum_play_song_btn = lv_btn_create(m);
-        lv_obj_set_size(drum_play_song_btn, 90, 90);
-        lv_obj_set_pos(drum_play_song_btn, 110, 360);
+        lv_obj_set_size(drum_play_song_btn, 90, 60);
+        lv_obj_set_pos(drum_play_song_btn, 110, 390);
         lv_obj_set_style_bg_color(drum_play_song_btn, lv_color_hex(0x1A1A2E), 0);
         lv_obj_set_style_bg_color(drum_play_song_btn, lv_color_hex(0x0F3460),
                                   LV_STATE_PRESSED);
@@ -693,18 +729,39 @@ void create_page(const char *title) {
         lv_obj_set_style_border_width(drum_play_song_btn, 3, 0);
         lv_obj_set_style_border_color(drum_play_song_btn, lv_color_hex(0x00FF00), 0);
         drum_play_song_lbl = lv_label_create(drum_play_song_btn);
-        lv_label_set_text(drum_play_song_lbl, song_playing ? "Stop" : "Play");
+        lv_label_set_text(drum_play_song_lbl,
+                          song_playing ? LV_SYMBOL_STOP : LV_SYMBOL_PLAY);
         lv_obj_set_style_text_color(drum_play_song_lbl, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(drum_play_song_lbl, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(drum_play_song_lbl, &lv_font_montserrat_24, 0);
         lv_obj_center(drum_play_song_lbl);
         lv_obj_add_event_cb(drum_play_song_btn, drum_play_song_btn_cb,
                             LV_EVENT_CLICKED, NULL);
-		
-        home_btn(m, -1);
-		
-      
+
+        // ---- PTN (x=300, 90×60) ----
+        mkbtn(m, 300, 390, 90, 60,
+              0x00AAFF, "PTN",
+              &lv_font_montserrat_18,
+              eb, 30, 8, 3);
+
+        // ---- SONG (x=410, 90×60) ----
+        mkbtn(m, 410, 390, 90, 60,
+              0x00DD00, "SONG",
+              &lv_font_montserrat_16,
+              eb, 32, 8, 3);
+
+        // ---- KIT (x=530, 90×60) ----
+        mkbtn(m, 530, 390, 90, 60,
+              0xFF8800, "KIT",
+              &lv_font_montserrat_18,
+              eb, 33, 8, 3);
+
+        // ---- REV (x=640, 90×60) ----
+        mkbtn(m, 640, 390, 90, 60,
+              0xAA0000, "REV",
+              &lv_font_montserrat_18,
+              eb, 34, 8, 3);
     }
-    // ---------------- SEQ ----------------
+	// xx---------------- SEQ ----------------
     else if (strcmp(title, "SEQ") == 0) {
         if (t) lv_obj_set_pos(t, 10, 3);
         drum_seq_page_create(m, t);   // tutta la pagina SEQ in Modules
@@ -725,82 +782,105 @@ void create_page(const char *title) {
     // ---------------- VCF / VCA ----------------
     else if (strncmp(title, "VCF", 3) == 0 || strncmp(title, "VCA", 3) == 0) {
         bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
-        lv_color_t active_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE)
-                                      : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
-        lv_color_t passed_color = isA ? lv_color_hex(COLOR_SLIDER_SYNTH_A_PASSED)
-                                      : lv_color_hex(COLOR_SLIDER_SYNTH_B_PASSED);
         int base = (strncmp(title, "VCF", 3) == 0) ? 0 : 4;
 
-         // ---------- Cornice grigia con label "ENV vir" ----------
-        lv_obj_t *frame = lv_obj_create(m);
-        lv_obj_set_size(frame, 280, 290);      // compattato (era 300x300)
-        lv_obj_set_pos(frame, 470, 160);       // bottom = 450 (bottom di home)
-        lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(frame, 1, 0);
-        lv_obj_set_style_border_color(frame, lv_color_hex(0x888888), 0);
-        lv_obj_set_style_radius(frame, 6, 0);
-        lv_obj_set_style_pad_all(frame, 0, 0);
-        lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_flag(frame, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-        lv_obj_set_style_clip_corner(frame, 0, 0);
+        if (isA && base == 0) {
+            // =========================================
+            // VCF A: modulo dedicato
+            // =========================================
+            vcfA_page_create(m);
+        } else {
+            // =========================================
+            // VCF B / VCA A / VCA B: codice originale
+            // =========================================
+            lv_color_t active_color = isA
+                ? lv_color_hex(COLOR_SLIDER_SYNTH_A_ACTIVE)
+                : lv_color_hex(COLOR_SLIDER_SYNTH_B_ACTIVE);
+            lv_color_t passed_color = isA
+                ? lv_color_hex(COLOR_SLIDER_SYNTH_A_PASSED)
+                : lv_color_hex(COLOR_SLIDER_SYNTH_B_PASSED);
 
-        lv_obj_t *frame_lbl = lv_label_create(frame);
-        lv_label_set_text(frame_lbl, "ENV vir");
-        lv_obj_set_style_text_color(frame_lbl, lv_color_hex(0xCCCCCC), 0);
-        lv_obj_set_style_text_font(frame_lbl, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_bg_color(frame_lbl, lv_color_hex(0x000000), 0);
-        lv_obj_set_style_bg_opa(frame_lbl, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_hor(frame_lbl, 8, 0);
-        lv_obj_align(frame_lbl, LV_ALIGN_TOP_MID, 0, -20);   // sopra il bordo
+            // ---------- Cornice grigia con label "ENV vir" ----------
+            lv_obj_t *frame = lv_obj_create(m);
+            lv_obj_set_size(frame, 280, 290);
+            lv_obj_set_pos(frame, 470, 160);
+            lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(frame, 1, 0);
+            lv_obj_set_style_border_color(frame, lv_color_hex(0x888888), 0);
+            lv_obj_set_style_radius(frame, 6, 0);
+            lv_obj_set_style_pad_all(frame, 0, 0);
+            lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(frame, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+            lv_obj_set_style_clip_corner(frame, 0, 0);
 
-              // ---------- 4 slider dentro la cornice ----------
-        // 4 × 48 + 3 gap × 20 = 252 → start = (280 - 252) / 2 = 14
-        const char *labels[] = {"A", "D", "S", "R"};
-        lv_color_t vcfb_slider_color = lv_color_hex(0x0022CC);   // blu VCF-B
-		
-        for (int i = 0; i < 4; i++) {
-            int sx = 14 + i * 68;
-            if (!isA && base == 0) {
-                // VCF B: senza freccina, indicator blu
-                slider_plain(frame, sx, 26, labels[i],
-                             base + i, vcfb_slider_color, vcfb_slider_color);
-            } else {
-                // VCF A, VCA A/B: invariato
-                slider(frame, sx, 26, labels[i],
-                       base + i, active_color, passed_color);
+            lv_obj_t *frame_lbl = lv_label_create(frame);
+            lv_label_set_text(frame_lbl, "ENV vir");
+            lv_obj_set_style_text_color(frame_lbl, lv_color_hex(0xCCCCCC), 0);
+            lv_obj_set_style_text_font(frame_lbl, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_bg_color(frame_lbl, lv_color_hex(0x000000), 0);
+            lv_obj_set_style_bg_opa(frame_lbl, LV_OPA_COVER, 0);
+            lv_obj_set_style_pad_hor(frame_lbl, 8, 0);
+            lv_obj_align(frame_lbl, LV_ALIGN_TOP_MID, 0, -20);
+
+            const char *labels[] = {"A", "D", "S", "R"};
+            lv_color_t vcfb_slider_color = lv_color_hex(0x0022CC);
+
+            for (int i = 0; i < 4; i++) {
+                int sx = 14 + i * 68;
+                if (!isA && base == 0) {
+                    slider_plain(frame, sx, 26, labels[i],
+                                 base + i, vcfb_slider_color, vcfb_slider_color);
+                } else {
+                    slider(frame, sx, 26, labels[i],
+                           base + i, active_color, passed_color);
+                }
             }
-        }
 
-        // VCF B: modulo dedicato
-        if (!isA && base == 0) {
-            vcf_page_synthb_create(m);
+            // VCF B: modulo dedicato
+            if (!isA && base == 0) {
+                vcf_page_synthb_create(m);
+            }
         }
 
         create_preset_label(m, t, isA);
         home_btn(m, -2);
-    }
-    // ---------------- FX ----------------
+    }   
+   // ---------------- FX ----------------
     else if (strcmp(title, "FX") == 0) {
         fx_page_create(m);
         home_btn(m, -1);
     }
 	    // ---------------- FM EDIT ----------------
     else if (strcmp(title, "FM Edit") == 0) {
-        lv_obj_t *lb = lv_label_create(m);
-        lv_label_set_text(lb, "FM Edit (work in progress)");
-        lv_obj_set_style_text_font(lb, &lv_font_montserrat_24, 0);
-        lv_obj_set_style_text_color(lb, lv_color_hex(0xAAAAAA), 0);
-        lv_obj_align(lb, LV_ALIGN_CENTER, 0, -40);
-        home_btn(m, -4);
+        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+        fmEdit_page_create(m, isA);
     }
-    // ---------------- DLY ----------------
-    else if (strncmp(title, "DLY", 3) == 0) {
-        lv_obj_t *lb = lv_label_create(m);
-        lv_label_set_text(lb, "Delay (work in progress)");
-        lv_obj_set_style_text_font(lb, &lv_font_montserrat_24, 0);
-        lv_obj_set_style_text_color(lb, lv_color_hex(0xAAAAAA), 0);
-        lv_obj_align(lb, LV_ALIGN_CENTER, 0, -40);
-        home_btn(m, -2);
+      // ---------------- DLY A / DLY B ----------------
+       else if (strncmp(title, "DLY", 3) == 0) {
+        bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+        dly_page_create(m, isA);
+        // Home custom: attaccato al fondo del frame VCF (bottom = 380)
+        // 90×85 a y=375 → overlap di 5px col frame
+        mkbtn(m, 10, 375, 90, 85,
+              0x9B59B6, LV_SYMBOL_LEFT,
+              &lv_font_montserrat_32,
+              eb, -2, 8, 3);
+    }
+	    // ---------------- CHORUS ----------------
+    else if (strcmp(title, "CHORUS") == 0) {
+        chorus_page_create(m);
+        mkbtn(m, 5, 360, 90, 90,
+              0x9B59B6, LV_SYMBOL_LEFT,
+              &lv_font_montserrat_32,
+              eb, -2, 8, 3);
+    }
+    // ---------------- PHASER ----------------
+    else if (strcmp(title, "PHASER") == 0) {
+        phaser_page_create(m);
+        mkbtn(m, 5, 360, 90, 90,
+              0x9B59B6, LV_SYMBOL_LEFT,
+              &lv_font_montserrat_32,
+              eb, -2, 8, 3);
     }
     // ---------------- fallback ----------------
     else {
@@ -904,6 +984,16 @@ void eb(lv_event_t *e) {
         log_add(b, lv_color_hex(0xFFFFFF));
         lvgl_port_lock(-1); create_page(pages[id]); lvgl_port_unlock();
     }
+	    if (id == 35) {
+        log_add("Apro: CHORUS", lv_color_hex(0xFFFFFF));
+        lvgl_port_lock(-1); create_page("CHORUS"); lvgl_port_unlock();
+        return;
+    }
+    if (id == 36) {
+        log_add("Apro: PHASER", lv_color_hex(0xFFFFFF));
+        lvgl_port_lock(-1); create_page("PHASER"); lvgl_port_unlock();
+        return;
+    }
 }
 
 void ebright(lv_event_t *e) { set_bright(lv_slider_get_value(lv_event_get_target(e))); }
@@ -951,9 +1041,10 @@ void eslider(lv_event_t *e) {
         update_env_plot(isA);
     }
 
-    // VCF slider (0..3): aggiorna il plotter ADSR di VCF-B (no-op se non presente)
+       // VCF slider (0..3): aggiorna il plotter ADSR (VCF A o VCF B, no-op se assenti)
     if (d->idx >= 0 && d->idx <= 3) {
         sB_vcf_env_plot_update();
+        vcfA_env_plot_update();
     }
 }
 

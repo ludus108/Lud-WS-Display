@@ -19,6 +19,11 @@ lv_obj_t *fx_rev_lbl   = nullptr;
 lv_obj_t *fx_preset_dd = nullptr;
 lv_obj_t *fx_save_btn  = nullptr;
 
+// ============================================================
+// Callbacks
+// ============================================================
+// fx_rev_btn: label (Rev1/Rev2) e bg_color cambiano runtime.
+// Rimane manuale (mkbtn non espone la label per modifiche post-create).
 static void fx_rev_btn_cb(lv_event_t *e) {
     (void)e;
     if (!fx_rev_lbl || !lv_obj_is_valid(fx_rev_lbl)) return;
@@ -40,6 +45,9 @@ static void fx_save_cb(lv_event_t *e) {
     toast_show("FX salvato!", lv_color_hex(0x00FF00), TOAST_DUR);
 }
 
+// ============================================================
+// Pagina FX
+// ============================================================
 void fx_page_create(lv_obj_t *parent) {
     lv_obj_t *lb = lv_label_create(parent);
     lv_label_set_text(lb, "FX (work in progress)");
@@ -71,19 +79,14 @@ void fx_page_create(lv_obj_t *parent) {
     lv_obj_set_style_pad_hor(fr_lbl, 6, 0);
     lv_obj_align(fr_lbl, LV_ALIGN_TOP_MID, 0, -22);
 
-    fx_preset_dd = lv_dropdown_create(frame);
-    lv_obj_set_size(fx_preset_dd, 65, 45);
-    lv_obj_set_pos(fx_preset_dd, 8, 12);
-    lv_obj_set_style_bg_color(fx_preset_dd, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_border_width(fx_preset_dd, 2, 0);
-    lv_obj_set_style_border_color(fx_preset_dd, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_color(fx_preset_dd, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(fx_preset_dd, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_pad_left(fx_preset_dd, 4, 0);
-    lv_obj_set_style_pad_right(fx_preset_dd, 2, 0);
-    lv_dropdown_set_options(fx_preset_dd, "P1\nP2\nP3\nP4\nP5\nP6\nP7\nP8");
+    // ---- Dropdown preset P1..P8 ----
+    fx_preset_dd = styled_dropdown(frame, 8, 12, 65, 45,
+                                   0x666666,
+                                   &lv_font_montserrat_16,
+                                   "P1\nP2\nP3\nP4\nP5\nP6\nP7\nP8");
     lv_dropdown_set_selected(fx_preset_dd, 0);
 
+    // ---- Toggle Rev1 / Rev2 (label e colore cambiano runtime) ----
     fx_rev_btn = lv_btn_create(frame);
     lv_obj_set_size(fx_rev_btn, 80, 45);
     lv_obj_set_pos(fx_rev_btn, 79, 12);
@@ -98,21 +101,13 @@ void fx_page_create(lv_obj_t *parent) {
     lv_obj_center(fx_rev_lbl);
     lv_obj_add_event_cb(fx_rev_btn, fx_rev_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    fx_save_btn = lv_btn_create(frame);
-    lv_obj_set_size(fx_save_btn, 85, 45);
-    lv_obj_set_pos(fx_save_btn, 165, 12);
-    lv_obj_set_style_bg_color(fx_save_btn, lv_color_hex(0xAA0000), 0);
-    lv_obj_set_style_bg_color(fx_save_btn, lv_color_hex(0xDD2222), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(fx_save_btn, 6, 0);
-    lv_obj_set_style_border_width(fx_save_btn, 2, 0);
-    lv_obj_set_style_border_color(fx_save_btn, lv_color_hex(0xFF4444), 0);
-    lv_obj_t *save_lbl = lv_label_create(fx_save_btn);
-    lv_label_set_text(save_lbl, "Salva");
-    lv_obj_set_style_text_color(save_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(save_lbl, &lv_font_montserrat_18, 0);
-    lv_obj_center(save_lbl);
-    lv_obj_add_event_cb(fx_save_btn, fx_save_cb, LV_EVENT_CLICKED, NULL);
+    // ---- Bottone Salva ----
+    fx_save_btn = mkbtn(frame, 165, 12, 85, 45,
+                        0xFF4444, "Salva",
+                        &lv_font_montserrat_18,
+                        fx_save_cb, 0, 6, 2);
 
+    // ---- 3 slider verticali: SIZE / LF / HF ----
     const char *sl_labels[3] = {"SIZE", "LF", "HF"};
     lv_obj_t **sl_ptrs[3]    = {&pot_size_FV1, &pot_LF_FV1, &pot_HF_FV1};
     const int sl_w    = 48;

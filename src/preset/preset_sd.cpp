@@ -71,7 +71,6 @@ bool loadPresetNamesFromSD(int synth) {
     }
     f.close();
 
-    // Completa con default quelli mancanti
     for (; i < MAX_PRESET; i++) {
         snprintf(dest[i], PRESET_NAME_LEN, "Preset %s%02d",
                  (synth == 0) ? "A" : "B", i);
@@ -80,8 +79,9 @@ bool loadPresetNamesFromSD(int synth) {
 }
 
 bool savePresetNamesToSD(int synth) {
-	  ensureDirectory((synth == 0) ? PRESET_PATH_SYNTH_A : PRESET_PATH_SYNTH_B);
-								 
+    ensureDirectory((synth == 0) ? PRESET_PATH_SYNTH_A
+                                 : PRESET_PATH_SYNTH_B);
+
     String p = getNamesPath(synth);
     SD.remove(p.c_str());
 
@@ -109,18 +109,15 @@ void initPresetNamesB() {
 }
 
 bool loadAllPresetNames() {
-    // SynthA
     if (SD.exists(getNamesPath(0).c_str())) {
         if (!loadPresetNamesFromSD(0))
             log_add("Lettura nomi A FALLITA", lv_color_hex(0xFF0000));
-        // File esiste ma lettura fallita: NON sovrascrivere
     } else {
         initPresetNamesA();
         savePresetNamesToSD(0);
         log_add("Creati nomi A default", lv_color_hex(0xFFFF00));
     }
 
-    // SynthB
     if (SD.exists(getNamesPath(1).c_str())) {
         if (!loadPresetNamesFromSD(1))
             log_add("Lettura nomi B FALLITA", lv_color_hex(0xFF0000));

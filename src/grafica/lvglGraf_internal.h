@@ -39,6 +39,10 @@
   #define DBG(...)  do {} while (0)
 #endif
 
+void chorus_page_create(lv_obj_t *parent);
+void chorus_reset_pointers();
+void phaser_page_create(lv_obj_t *parent);
+void phaser_reset_pointers();
 // --------------------------- UI MAP --------------------------
 // Indice UI waveform → valore firmware SynthB
 // 0 SAW→0, 1 SAW8→4, 2 TRI→3, 3 SQR→2, 4 SINE→1, 5..7 FM1..3→5..7, 8 NOISE→8
@@ -88,6 +92,7 @@ extern lv_obj_t *drum_swing_val_lbl;
 extern uint16_t  drum_bpm;
 extern uint16_t  drum_swing;
 
+void drum_meter_init();
 void drum_bpm_swing_create(lv_obj_t *parent);
 void drum_close_bpm_window();
 uint32_t drum_swing_max_for_bpm(uint16_t bpm);
@@ -138,6 +143,15 @@ extern lv_obj_t *song_slot_kit_lbl    [SONG_ROWS][SONG_COLS];
 extern lv_obj_t *song_slot_num_lbl    [SONG_ROWS][SONG_COLS];
 extern lv_obj_t *song_slot_rev_lbl    [SONG_ROWS][SONG_COLS];
 
+extern int  song_play_slot;
+extern int  song_play_step;
+int  song_current_section();      // -1 se fill o non playing
+int  song_current_pattern();      // -1 se non playing
+bool song_current_is_fill();      // true se slot corrente è fill
+//-------------------------------------------------------------------------------
+
+extern int drum_cursor_off_x;
+void drum_meters_update_from_slot(int slot, uint8_t step);
 // DRUM — MIX meters (micro meter per slider DRUM MIX)
 extern lv_obj_t *drum_mix_meter[DRUM_MIX_COUNT];
 void drum_mix_meters_trigger_from_slot(int slot, uint8_t step);
@@ -253,5 +267,27 @@ void fx_page_create(lv_obj_t *parent);
 // ============================================================
 void reset_ui_pointers();
 void page_begin(const char *title);   // title==nullptr → HOME
+// ============================================================
+// DLY A / DLY B (in lvglGrafDly.cpp)
+// ============================================================
+void dly_page_create(lv_obj_t *parent, bool isA);
+void dly_reset_pointers();
+// ============================================================
+// VCF A (in lvglGrafVcfA.cpp)
+// ============================================================
+void vcfA_page_create(lv_obj_t *parent);
+void vcfA_reset_pointers();
+void vcfA_env_plot_update();
+// ============================================================
+// Dati FM (definiti in lvglGrafCore.cpp, editabili da FM Edit)
+// ============================================================
+extern uint8_t fmSetSin[8][3];
+extern uint8_t fmSetDiv[8][3];
 
+// ============================================================
+// FM Edit (in lvglGrafFmEdit.cpp)
+// ============================================================
+void fmEdit_page_create(lv_obj_t *parent, bool isA);
+void fmEdit_reset_pointers();
+void fmEdit_update_plot();       // ridisegna il plotter col preset corrente
 #endif
