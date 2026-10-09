@@ -1,12 +1,7 @@
 // images.c - Ponte per compilare i file immagine in C
-#include "images/img_bott_play.c"
-#include "images/img_bott_stop.c"
-#include "images/img_bott_init.c"
 #include "images/img_slider_track.c"
 #include "images/img_slider_indicator.c"
 #include "images/img_slider_knob.c"
-#include "images/freccina.c"
-#include "images/freccina_oriz.c"
 #include "images/img_meter_audio_track.c"
 #include "images/img_meter_audio_indicator.c"
 #include "images/img_meter_comp_track.c"
@@ -18,4 +13,3 @@
 #include "images/img_slider_oriz_knob.c"
 #include "images/img_arc_bg.c"
 #include "images/img_arc_indic.c"
-#include "images/home.c"

@@ -15,9 +15,10 @@ lv_obj_t *kit_preset_dd = nullptr;
 lv_obj_t *kit_rev_dd    = nullptr;
 lv_obj_t *kit_voice_dd[9] = {nullptr,nullptr,nullptr,nullptr,nullptr,
                               nullptr,nullptr,nullptr,nullptr};
-uint8_t   kit_cur_kit = 0;   // 0..10
+uint8_t   kit_cur_kit = 0;   // 0..15
 
 #define KIT_VOICE_COUNT 9
+
 // ---- Nomi dei 16 kit (editabili) ----
 char kit_names[16][KIT_NAME_LEN] = {
     "Lud1",    // 1
@@ -37,6 +38,7 @@ char kit_names[16][KIT_NAME_LEN] = {
     "RX5",     // 15
     "User"     // 16
 };
+
 // ---- Nomi delle voci (label sopra i dropdown) ----
 static const char *kit_voice_names[KIT_VOICE_COUNT] = {
     "BD", "SD", "HH", "OH", "H2", "CLAP", "PERC1", "PERC2", "PERC3"
@@ -107,21 +109,10 @@ static const int kitArr[10][16] = {
 
 // ---- Copia di maxArr[9] da lista.h (indici massimi 0-based per voce) ----
 static const int maxArr[9] = { 11, 11, 13, 10, 13, 4, 11, 12, 12 };
-// ============================================================
-// Rinomina KIT (window modale)
-// ============================================================
-static lv_obj_t *kit_rename_win = NULL;
-static lv_obj_t *kit_rename_ta  = NULL;
-static int       kit_rename_idx = 0;
 
-void kit_close_rename_window() {
-    if (kit_rename_win) {
-        lv_obj_del(kit_rename_win);
-        kit_rename_win = NULL;
-        kit_rename_ta  = NULL;
-    }
-}
-
+// ============================================================
+// Rinomina KIT
+// ============================================================
 static void kit_refresh_dd_options() {
     if (!kit_preset_dd || !lv_obj_is_valid(kit_preset_dd)) return;
     static char kit_opts[512];
@@ -130,7 +121,7 @@ static void kit_refresh_dd_options() {
         if (i > 0) strncat(kit_opts, "\n",
                           sizeof(kit_opts) - strlen(kit_opts) - 1);
         char line[40];
-        snprintf(line, sizeof(line), "%d %s", i + 1, kit_names[i]);
+        snprintf(line, sizeof(line), "%d %.20s", i + 1, kit_names[i]);
         strncat(kit_opts, line,
                 sizeof(kit_opts) - strlen(kit_opts) - 1);
     }
@@ -140,99 +131,35 @@ static void kit_refresh_dd_options() {
     lv_dropdown_set_symbol(kit_preset_dd, NULL);
 }
 
-static void kit_rename_confirm(lv_event_t *e) {
-    (void)e;
-    if (!kit_rename_ta) return;
-    const char *name = lv_textarea_get_text(kit_rename_ta);
-    if (strlen(name) > 0) {
-        strncpy(kit_names[kit_rename_idx], name, KIT_NAME_LEN - 1);
-        kit_names[kit_rename_idx][KIT_NAME_LEN - 1] = '\0';
-        kit_refresh_dd_options();
-    }
-    kit_close_rename_window();
+// Callback applicata dalla modal globale in Core quando l'utente conferma.
+// user_data = indice kit (0..15) come intptr_t.
+static void kit_rename_apply(const char *new_name, void *user_data) {
+    if (!new_name || strlen(new_name) == 0) return;
+    int idx = (int)(intptr_t)user_data;
+    if (idx < 0 || idx >= 16) return;
+
+    strncpy(kit_names[idx], new_name, KIT_NAME_LEN - 1);
+    kit_names[idx][KIT_NAME_LEN - 1] = '\0';
+    kit_refresh_dd_options();
 }
 
-static void kit_rename_cancel(lv_event_t *e) {
-    (void)e;
-    kit_close_rename_window();
+// Wrapper: la vecchia finestra locale è stata sostituita dalla modal
+// globale in Core. Mantengo la firma per non toccare lvglGrafPages.cpp.
+void kit_close_rename_window() {
+    close_rename_modal();
 }
 
 static void kit_rename_btn_cb(lv_event_t *e) {
     (void)e;
-    if (kit_rename_win) return;
-    kit_rename_idx = kit_cur_kit;
-
-    kit_rename_win = lv_win_create(lv_scr_act(), 0);
-    lv_obj_set_size(kit_rename_win, 580, 360);
-    lv_obj_set_pos(kit_rename_win, 110, 15);
-    lv_obj_set_style_bg_color(kit_rename_win, lv_color_hex(0x111111), 0);
-    lv_obj_set_style_border_color(kit_rename_win,
-                                  lv_color_hex(0xFF8800), 0);
-    lv_obj_set_style_border_width(kit_rename_win, 2, 0);
-    lv_obj_set_style_radius(kit_rename_win, 8, 0);
-
-    lv_obj_t *client = lv_win_get_content(kit_rename_win);
-    lv_obj_set_style_pad_all(client, 10, 0);
-    lv_obj_set_style_bg_color(client, lv_color_hex(0x000000), 0);
-    lv_obj_set_flex_flow(client, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(client, 10, 0);
-
-    lv_obj_t *lbl = lv_label_create(client);
-    lv_label_set_text(lbl, "Rinomina Kit");
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
-
-    kit_rename_ta = lv_textarea_create(client);
-    lv_obj_set_size(kit_rename_ta, 460, 45);
-    lv_obj_set_style_bg_color(kit_rename_ta, lv_color_hex(0x222222), 0);
-    lv_obj_set_style_text_color(kit_rename_ta, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(kit_rename_ta, 1, 0);
-    lv_obj_set_style_border_color(kit_rename_ta, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_font(kit_rename_ta, &lv_font_montserrat_18, 0);
-    lv_textarea_set_text(kit_rename_ta, kit_names[kit_rename_idx]);
-    lv_textarea_set_max_length(kit_rename_ta, KIT_NAME_LEN - 1);
-    lv_textarea_set_one_line(kit_rename_ta, true);
-
-    lv_obj_t *kb = lv_keyboard_create(client);
-    lv_obj_set_size(kb, 550, 200);
-    lv_obj_set_style_text_font(kb, &lv_font_montserrat_18, 0);
-    lv_keyboard_set_textarea(kb, kit_rename_ta);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x222222), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(kb, lv_color_hex(0x444444), LV_STATE_PRESSED);
-    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-
-    lv_obj_t *btn_cont = lv_obj_create(client);
-    lv_obj_set_size(btn_cont, 460, 50);
-    lv_obj_set_style_bg_opa(btn_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(btn_cont, 0, 0);
-    lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(btn_cont, 20, 0);
-
-    lv_obj_t *ok = lv_btn_create(btn_cont);
-    lv_obj_set_size(ok, 120, 40);
-    lv_obj_set_style_bg_color(ok, lv_color_hex(0x1A6B4A), 0);
-    lv_obj_t *ok_l = lv_label_create(ok);
-    lv_label_set_text(ok_l, "OK");
-    lv_obj_set_style_text_color(ok_l, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(ok_l);
-    lv_obj_add_event_cb(ok, kit_rename_confirm, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *cancel = lv_btn_create(btn_cont);
-    lv_obj_set_size(cancel, 120, 40);
-    lv_obj_set_style_bg_color(cancel, lv_color_hex(0x6B1A1A), 0);
-    lv_obj_t *cn_l = lv_label_create(cancel);
-    lv_label_set_text(cn_l, "Annulla");
-    lv_obj_set_style_text_color(cn_l, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(cn_l);
-    lv_obj_add_event_cb(cancel, kit_rename_cancel, LV_EVENT_CLICKED, NULL);
+    if (rename_modal_is_open()) return;
+    open_rename_modal("Rinomina Kit",
+                      kit_names[kit_cur_kit],
+                      KIT_NAME_LEN - 1,
+                      0xFF8800,
+                      kit_rename_apply,
+                      (void*)(intptr_t)kit_cur_kit);
 }
+
 // ============================================================
 // Helper
 // ============================================================
@@ -249,7 +176,7 @@ static void kit_build_options(int voice, char *buf, size_t bufSize) {
 // Applica la selezione del kit corrente a tutti i dropdown
 static void kit_apply_current() {
     int k = kit_cur_kit;
-    if (k > 10) k = 10;
+    if (k > 15) k = 15;
 
     for (int i = 0; i < KIT_VOICE_COUNT; i++) {
         if (!kit_voice_dd[i] || !lv_obj_is_valid(kit_voice_dd[i])) continue;
@@ -271,7 +198,7 @@ static void kit_apply_current() {
 static void kit_preset_dd_cb(lv_event_t *e) {
     lv_obj_t *dd = lv_event_get_target(e);
     int sel = lv_dropdown_get_selected(dd);
-    if (sel < 0 || sel > 10) return;
+    if (sel < 0 || sel > 15) return;
     kit_cur_kit = (uint8_t)sel;
     kit_apply_current();
 }
@@ -287,37 +214,15 @@ static void kit_voice_dd_cb(lv_event_t *e) {
 }
 
 // ============================================================
-// Dropdown helper
+// Salva
 // ============================================================
-static lv_obj_t* kit_dropdown_create(lv_obj_t *parent,
-                                      int x, int y, int w, int h,
-                                      const char *options,
-                                      lv_event_cb_t cb) {
-    lv_obj_t *dd = lv_dropdown_create(parent);
-    lv_obj_set_size(dd, w, h);
-    lv_obj_set_pos(dd, x, y);
-    lv_obj_set_style_bg_color(dd, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(dd, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(dd, 2, 0);
-    lv_obj_set_style_border_color(dd, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_radius(dd, 6, 0);
-    lv_obj_set_style_text_color(dd, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(dd, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_pad_left(dd, 4, 0);
-    lv_obj_set_style_pad_right(dd, 4, 0);
-    lv_dropdown_set_options(dd, options);
-    lv_dropdown_set_symbol(dd, NULL);
-
-    lv_obj_t *list = lv_dropdown_get_list(dd);
-    if (list) {
-        lv_obj_set_style_text_font(list, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_bg_color(list, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_text_color(list, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_max_height(list, 380, 0);
-    }
-
-    if (cb) lv_obj_add_event_cb(dd, cb, LV_EVENT_VALUE_CHANGED, NULL);
-    return dd;
+static void kit_save_btn_cb(lv_event_t *e) {
+    (void)e;
+    // TODO: invio bulk kitArr + kit_names via LWS
+    Serial.printf("[KIT] send to Teensy (stub) kit=%u\n",
+                  (unsigned)kit_cur_kit);
+    log_add("KIT salvato", lv_color_hex(0x00FF00));
+    toast_show("KIT salvato!", lv_color_hex(0x00FF00), TOAST_DUR);
 }
 
 // ============================================================
@@ -325,62 +230,46 @@ static lv_obj_t* kit_dropdown_create(lv_obj_t *parent,
 // ============================================================
 void kit_page_create(lv_obj_t *parent) {
     // ---- Home bottom-left ----
-    lv_obj_t *home = lv_btn_create(parent);
-    lv_obj_set_size(home, 55, 45);
-    lv_obj_set_pos(home, 5, 415);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(home, 6, 0);
-    lv_obj_set_style_border_width(home, 2, 0);
-    lv_obj_set_style_border_color(home, lv_color_hex(0x9B59B6), 0);
-    lv_obj_t *home_lbl = lv_label_create(home);
-    lv_label_set_text(home_lbl, LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_color(home_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(home_lbl, &lv_font_montserrat_24, 0);
-    lv_obj_center(home_lbl);
-    lv_obj_add_event_cb(home, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)-3);
+    mkbtn(parent, 5, 415, 55, 45,
+          0x9B59B6, LV_SYMBOL_LEFT,
+          &lv_font_montserrat_24,
+          eb, -3, 6, 2);
 
-       // ---- Dropdown KIT 1..16 (top-right, mostra "n Nome") ----
+    // ---- Dropdown KIT 1..16 (top-right, mostra "n Nome") ----
     static char kit_opts[512];
     kit_opts[0] = '\0';
     for (int i = 0; i < 16; i++) {
         if (i > 0) strncat(kit_opts, "\n",
                           sizeof(kit_opts) - strlen(kit_opts) - 1);
         char line[40];
-        snprintf(line, sizeof(line), "%d %s", i + 1, kit_names[i]);
+        snprintf(line, sizeof(line), "%d %.20s", i + 1, kit_names[i]);
         strncat(kit_opts, line,
                 sizeof(kit_opts) - strlen(kit_opts) - 1);
     }
-    kit_preset_dd = kit_dropdown_create(parent, 350, 5, 180, 45,
-                                        kit_opts, kit_preset_dd_cb);
-    lv_obj_set_style_border_color(kit_preset_dd,
-                                  lv_color_hex(0xFF8800), 0);
+    kit_preset_dd = styled_dropdown(parent, 350, 5, 180, 45,
+                                    0xFF8800,
+                                    &lv_font_montserrat_16,
+                                    kit_opts);
     lv_dropdown_set_selected(kit_preset_dd, kit_cur_kit);
+    lv_obj_add_event_cb(kit_preset_dd, kit_preset_dd_cb,
+                        LV_EVENT_VALUE_CHANGED, NULL);
 
     // ---- Dropdown REV 1..16 (top-right) ----
     const char *rev_opts =
         "REV 1\nREV 2\nREV 3\nREV 4\nREV 5\nREV 6\nREV 7\nREV 8\n"
         "REV 9\nREV 10\nREV 11\nREV 12\nREV 13\nREV 14\nREV 15\nREV 16";
-    kit_rev_dd = kit_dropdown_create(parent, 540, 5, 120, 45,
-                                     rev_opts, kit_rev_dd_cb);
-    lv_obj_set_style_border_color(kit_rev_dd,
-                                  lv_color_hex(0xAA0000), 0);
+    kit_rev_dd = styled_dropdown(parent, 540, 5, 120, 45,
+                                 0xAA0000,
+                                 &lv_font_montserrat_16,
+                                 rev_opts);
+    lv_obj_add_event_cb(kit_rev_dd, kit_rev_dd_cb,
+                        LV_EVENT_VALUE_CHANGED, NULL);
 
     // ---- Bottone RINOMINA (top-right) ----
-    lv_obj_t *rn_btn = lv_btn_create(parent);
-    lv_obj_set_size(rn_btn, 120, 45);
-    lv_obj_set_pos(rn_btn, 670, 5);
-    lv_obj_set_style_bg_color(rn_btn, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(rn_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(rn_btn, 6, 0);
-    lv_obj_set_style_border_width(rn_btn, 2, 0);
-    lv_obj_set_style_border_color(rn_btn, lv_color_hex(0xFF8800), 0);
-    lv_obj_t *rn_lbl = lv_label_create(rn_btn);
-    lv_label_set_text(rn_lbl, "RINOMINA");
-    lv_obj_set_style_text_color(rn_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(rn_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(rn_lbl);
-    lv_obj_add_event_cb(rn_btn, kit_rename_btn_cb, LV_EVENT_CLICKED, NULL);
+    mkbtn(parent, 670, 5, 120, 45,
+          0xFF8800, "RINOMINA",
+          &lv_font_montserrat_14,
+          kit_rename_btn_cb, 0, 6, 2);
 
     // ---- Griglia 3x3 di dropdown voce ----
     //   Cella = 240 x 110, griglia totale = 720 x 330, centrata a (40, 70)
@@ -405,12 +294,22 @@ void kit_page_create(lv_obj_t *parent) {
         // Dropdown con i set della voce
         char opts[256];
         kit_build_options(i, opts, sizeof(opts));
-        kit_voice_dd[i] = kit_dropdown_create(parent,
-                                              cx + 10, cy + 30,
-                                              CELL_W - 20, 45,
-                                              opts, kit_voice_dd_cb);
+        kit_voice_dd[i] = styled_dropdown(parent,
+                                          cx + 10, cy + 30,
+                                          CELL_W - 20, 45,
+                                          0x666666,
+                                          &lv_font_montserrat_16,
+                                          opts);
+        lv_obj_add_event_cb(kit_voice_dd[i], kit_voice_dd_cb,
+                            LV_EVENT_VALUE_CHANGED, NULL);
     }
 
     // ---- Applica la selezione del kit corrente ----
     kit_apply_current();
+
+    // ---- Bottone Salva (bottom-right, stile SONG/SEQ) ----
+    mkbtn(parent, 680, 415, 110, 45,
+          0xFF4444, "Salva",
+          &lv_font_montserrat_16,
+          kit_save_btn_cb, 0, 6, 2);
 }

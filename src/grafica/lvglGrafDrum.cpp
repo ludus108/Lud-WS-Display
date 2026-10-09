@@ -60,6 +60,10 @@ uint8_t   drum_cur_section = 0;
 #define DRUM_SEC_BG_PRESSED     0x0F3460
 #define DRUM_FL_ACTIVE_BORDER   0x00DD00
 
+lv_obj_t *drum_mix_meter[DRUM_MIX_COUNT] = {nullptr};
+static float drum_mix_meter_value[DRUM_MIX_COUNT] = {0.0f};
+static int   drum_mix_meter_hold [DRUM_MIX_COUNT] = {0};
+
 static int          drum_meter_hold [DRUM_ROWS] = {0};
 static int          drum_meter_hold_ticks = 0;
 static float        drum_meter_value [DRUM_ROWS] = {0.0f};
@@ -68,7 +72,7 @@ static float        drum_meter_alpha = 0.0f;
 
 static uint8_t  drum_cur_pattern        = 0;
 static bool     drum_seqArr_initialized = false;
-static int      drum_cursor_off_x       = 1;
+ int      drum_cursor_off_x       = 1;
 
 static void drum_dd_update_options();
 
@@ -99,7 +103,35 @@ static void drum_meter_tick_cb(lv_timer_t *t) {
         drum_meter_value[r] = v;
         lv_slider_set_value(drum_row_meter[r], (int)v, LV_ANIM_OFF);
     }
+
+    // ---- Meter DRUM MIX ----
+    for (int i = 0; i < DRUM_MIX_COUNT; i++) {
+        if (!drum_mix_meter[i] || !lv_obj_is_valid(drum_mix_meter[i])) continue;
+
+        if (drum_mix_meter_hold[i] > 0) {
+            drum_mix_meter_hold[i]--;
+            continue;
+        }
+
+        float v = drum_mix_meter_value[i];
+        if (v <= 0.0f) continue;
+
+        v *= drum_meter_alpha;
+        if (v < 0.5f) v = 0.0f;
+        drum_mix_meter_value[i] = v;
+        lv_slider_set_value(drum_mix_meter[i], (int)v, LV_ANIM_OFF);
+    }
 }
+
+
+void drum_meter_init() {
+    if (drum_meter_alpha == 0.0f) drum_meter_compute_alpha();
+    if (!drum_meter_timer) {
+        drum_meter_timer = lv_timer_create(drum_meter_tick_cb,
+                                           DRUM_METER_TICK_MS, NULL);
+    }
+}
+
 
 static void drum_meter_create(lv_obj_t *parent, int row,
                               int x, int y, int w, int h) {
@@ -139,6 +171,32 @@ static void drum_meter_create(lv_obj_t *parent, int row,
     drum_row_meter[row] = s;
 }
 
+// Aggiorna i 9 meter PTN leggendo dallo slot song corrente
+void drum_meters_update_from_slot(int slot, uint8_t step) {
+    if (slot < 0 || slot >= (int)songLen[song_cur_song]) return;
+    if (step >= 16) return;
+
+    uint8_t tipo = songArr[song_cur_song][SONG_COL_TIPO][slot];
+    uint8_t num  = songArr[song_cur_song][SONG_COL_NUM][slot];
+
+    uint8_t vals[DRUM_ROWS] = {0};
+    if (tipo == 4) {
+        for (int r = 0; r < DRUM_ROWS; r++)
+            vals[r] = drum_fillArr[num][r][step];
+    } else {
+        uint8_t s = tipo * 16 + step;
+        for (int r = 0; r < DRUM_ROWS; r++)
+            vals[r] = drum_seqArr[num][r][s];
+    }
+
+    for (int r = 0; r < DRUM_ROWS; r++) {
+        if (vals[r] > 0) {
+            drum_meter_value[r] = (vals[r] * 100.0f) / 3.0f;
+            drum_meter_hold[r]  = drum_meter_hold_ticks;
+        }
+    }
+}
+
 static void drum_meters_update(uint8_t step) {
     for (int r = 0; r < DRUM_ROWS; r++) {
         uint8_t v = drum_pattern_data[r][step];
@@ -162,6 +220,18 @@ static void drum_meters_reset() {
 // Vista <-> array attivo
 // ------------------------------------------------------------
 static uint8_t* drum_cell_ptr(int row, int col) {
+    if (song_playing) {
+        int ptn = song_current_pattern();
+        if (ptn < 0) return &drum_seqArr[0][row][0];   // fallback
+        if (song_current_is_fill()) {
+            return &drum_fillArr[ptn][row][col];
+        } else {
+            int sec = song_current_section();
+            if (sec < 0) sec = 0;
+            return &drum_seqArr[ptn][row][sec * 16 + col];
+        }
+    }
+    // Modalità manuale
     if (drum_mode == 0) {
         return &drum_seqArr[drum_cur_pattern][row]
                           [drum_cur_section * DRUM_SECTION_STEPS + col];
@@ -212,7 +282,7 @@ static void drum_fillArr_randomize() {
     Serial.println("[DRUM] fillArr randomizzato");
 }
 
-static void drum_seqArr_init_if_needed() {
+ void drum_seqArr_init_if_needed() {
     if (drum_seqArr_initialized) return;
     drum_seqArr_randomize();
     drum_fillArr_randomize();
@@ -483,10 +553,21 @@ static void drum_grid_update() {
             drum_update_cell_visual(r, c);
 }
 
+void drum_seq_update_bpm(uint16_t bpm) {
+    if (!drum_step_timer) return;
+    if (bpm < 60)  bpm = 60;
+    if (bpm > 250) bpm = 250;
+    uint32_t period = (60000 / (uint32_t)bpm) / 4;
+    if (period < 5) period = 5;
+    lv_timer_set_period(drum_step_timer, period);
+}
+
 static void drum_step_timer_cb(lv_timer_t *t) {
     (void)t;
-    if (!drum_playing)  return;
-    if (!drum_cursor)   return;
+    if (!drum_playing) return;
+    if (song_playing) return;   // la song gestisce il cursore PTN
+    if (!drum_cursor) return;
+
     drum_step_counter = (drum_step_counter + 1) & 0x0F;
     if (lv_obj_is_valid(drum_cursor)) {
         lv_obj_set_x(drum_cursor,
@@ -501,6 +582,7 @@ static void drum_play_btn_cb(lv_event_t *e) {
     drum_playing = !drum_playing;
 
     if (drum_playing) {
+		        drum_seq_update_bpm(drum_bpm);
         drum_step_counter = 0;
         if (drum_cursor && lv_obj_is_valid(drum_cursor)) {
             lv_obj_set_x(drum_cursor, drum_grid_x + drum_cursor_off_x);
@@ -510,7 +592,7 @@ static void drum_play_btn_cb(lv_event_t *e) {
         if (drum_play_btn && lv_obj_is_valid(drum_play_btn))
             lv_obj_set_style_border_color(drum_play_btn, lv_color_hex(0x888888), 0);
         if (drum_play_lbl && lv_obj_is_valid(drum_play_lbl))
-            lv_label_set_text(drum_play_lbl, "Stop");
+            lv_label_set_text(drum_play_lbl, LV_SYMBOL_STOP);
     } else {
         drum_step_counter = 0;
         if (drum_cursor && lv_obj_is_valid(drum_cursor))
@@ -519,7 +601,7 @@ static void drum_play_btn_cb(lv_event_t *e) {
         if (drum_play_btn && lv_obj_is_valid(drum_play_btn))
             lv_obj_set_style_border_color(drum_play_btn, lv_color_hex(0x00FF00), 0);
         if (drum_play_lbl && lv_obj_is_valid(drum_play_lbl))
-            lv_label_set_text(drum_play_lbl, "Play");
+            lv_label_set_text(drum_play_lbl, LV_SYMBOL_PLAY);
     }
 }
 
@@ -553,6 +635,7 @@ static void drum_sec_apply_visual() {
 }
 
 static void drum_sec_btn_cb(lv_event_t *e) {
+	  if (song_playing) return;   // la song gestisce la sezione
     int sec = (int)(uintptr_t)lv_event_get_user_data(e);
     if (sec < 0 || sec > 3) return;
 
@@ -583,31 +666,17 @@ static void drum_sec_create(lv_obj_t *parent) {
     const int X0 = 175;
 
     for (int i = 0; i < 4; i++) {
-        lv_obj_t *b = lv_btn_create(parent);
-        lv_obj_set_size(b, W, H);
-        lv_obj_set_pos(b, X0 + i * (W + GAP), Y);
-        lv_obj_set_style_bg_color(b, lv_color_hex(DRUM_SEC_BG), 0);
-        lv_obj_set_style_bg_color(b, lv_color_hex(DRUM_SEC_BG_PRESSED),
-                                  LV_STATE_PRESSED);
-        lv_obj_set_style_radius(b, 6, 0);
-        lv_obj_set_style_border_width(b, 2, 0);
-        lv_obj_set_style_border_color(b, lv_color_hex(DRUM_SEC_IDLE_BORDER), 0);
-
-        lv_obj_t *l = lv_label_create(b);
-        lv_label_set_text(l, names[i]);
-        lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
-        lv_obj_center(l);
-
-        drum_sec_btn[i] = b;
-        drum_sec_lbl[i] = l;
-        lv_obj_add_event_cb(b, drum_sec_btn_cb, LV_EVENT_CLICKED,
-                            (void*)(uintptr_t)i);
+        drum_sec_btn[i] = mkbtn(parent, X0 + i * (W + GAP), Y, W, H,
+                                DRUM_SEC_IDLE_BORDER, names[i],
+                                &lv_font_montserrat_24,
+                                drum_sec_btn_cb, i, 6, 2);
+        drum_sec_lbl[i] = lv_obj_get_child(drum_sec_btn[i], 0);
     }
     drum_sec_apply_visual();
 }
 
 static void drum_fl_btn_cb(lv_event_t *e) {
+	  if (song_playing) return;   // la song gestisce la sezione
     (void)e;
     if (drum_mode == 1) return;
 
@@ -626,29 +695,18 @@ static void drum_fl_btn_cb(lv_event_t *e) {
 }
 
 static void drum_fl_btn_create(lv_obj_t *parent) {
-    drum_fl_btn = lv_btn_create(parent);
-    lv_obj_set_size(drum_fl_btn, 55, 45);
-    lv_obj_set_pos(drum_fl_btn, 415, 400);
-    lv_obj_set_style_bg_color(drum_fl_btn, lv_color_hex(DRUM_SEC_BG), 0);
-    lv_obj_set_style_bg_color(drum_fl_btn, lv_color_hex(DRUM_SEC_BG_PRESSED),
-                              LV_STATE_PRESSED);
-    lv_obj_set_style_radius(drum_fl_btn, 6, 0);
-    lv_obj_set_style_border_width(drum_fl_btn, 2, 0);
-    lv_obj_set_style_border_color(drum_fl_btn, lv_color_hex(DRUM_SEC_IDLE_BORDER), 0);
-
-    drum_fl_lbl = lv_label_create(drum_fl_btn);
-    lv_label_set_text(drum_fl_lbl, "FL");
-    lv_obj_set_style_text_color(drum_fl_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(drum_fl_lbl, &lv_font_montserrat_24, 0);
-    lv_obj_center(drum_fl_lbl);
-
-    lv_obj_add_event_cb(drum_fl_btn, drum_fl_btn_cb, LV_EVENT_CLICKED, NULL);
+    drum_fl_btn = mkbtn(parent, 415, 400, 55, 45,
+                        DRUM_SEC_IDLE_BORDER, "FL",
+                        &lv_font_montserrat_24,
+                        drum_fl_btn_cb, 0, 6, 2);
+    drum_fl_lbl = lv_obj_get_child(drum_fl_btn, 0);
 }
 
 // ------------------------------------------------------------
 // Dropdown PTN/FLN
 // ------------------------------------------------------------
 static void drum_ptn_dd_cb(lv_event_t *e) {
+	  if (song_playing) return;   // la song gestisce la sezione
     lv_obj_t *dd = lv_event_get_target(e);
     int sel = lv_dropdown_get_selected(dd);
     if (sel < 0 || sel >= DRUM_PATTERNS) return;
@@ -690,76 +748,82 @@ static void drum_dd_update_options() {
 }
 
 static void drum_ptn_dd_create(lv_obj_t *parent) {
-    drum_ptn_dd = lv_dropdown_create(parent);
-    lv_obj_set_size(drum_ptn_dd, 95, 45);
-    lv_obj_set_pos(drum_ptn_dd, 70, 400);
-    lv_obj_set_style_bg_color(drum_ptn_dd, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(drum_ptn_dd, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(drum_ptn_dd, 2, 0);
-    lv_obj_set_style_border_color(drum_ptn_dd, lv_color_hex(0x00AAFF), 0);
-    lv_obj_set_style_radius(drum_ptn_dd, 6, 0);
-    lv_obj_set_style_text_color(drum_ptn_dd, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(drum_ptn_dd, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_pad_left(drum_ptn_dd, 6, 0);
-    lv_obj_set_style_pad_right(drum_ptn_dd, 4, 0);
-
+    drum_ptn_dd = styled_dropdown(parent, 70, 400, 95, 45,
+                                  0x00AAFF,
+                                  &lv_font_montserrat_24,
+                                  "");
     drum_dd_update_options();
-
-    lv_obj_t *list = lv_dropdown_get_list(drum_ptn_dd);
-    if (list) {
-        lv_obj_set_style_text_font(list, &lv_font_montserrat_16, 0);
-        lv_obj_set_style_bg_color(list, lv_color_hex(0x1A1A2E), 0);
-        lv_obj_set_style_text_color(list, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_max_height(list, 380, 0);
-    }
-
-    lv_obj_add_event_cb(drum_ptn_dd, drum_ptn_dd_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(drum_ptn_dd, drum_ptn_dd_cb,
+                        LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 // ------------------------------------------------------------
-// Pagina SEQ
+// Pagina PTN
 // ------------------------------------------------------------
+// Carica nel pattern_data lo slot song corrente (sezione o fill)
+void drum_load_song_slot_into_view() {
+    int ptn = song_current_pattern();
+    if (ptn < 0) return;
+
+    if (song_current_is_fill()) {
+        for (int r = 0; r < DRUM_ROWS; r++)
+            for (int c = 0; c < DRUM_COLS; c++)
+                drum_pattern_data[r][c] = drum_fillArr[ptn][r][c];
+    } else {
+        int sec = song_current_section();
+        if (sec < 0) sec = 0;
+        for (int r = 0; r < DRUM_ROWS; r++)
+            for (int c = 0; c < DRUM_COLS; c++)
+                drum_pattern_data[r][c] = drum_seqArr[ptn][r][sec * 16 + c];
+    }
+
+    // Ridisegna la griglia
+    for (int r = 0; r < DRUM_ROWS; r++)
+        for (int c = 0; c < DRUM_COLS; c++)
+            drum_update_cell_visual(r, c);
+
+    drum_sec_apply_visual();
+}
+
+// Ripristina la vista manuale (pattern/sezione scelti dall'utente)
+void drum_reload_manual_view() {
+    drum_view_load_from_seqArr();
+    for (int r = 0; r < DRUM_ROWS; r++)
+        for (int c = 0; c < DRUM_COLS; c++)
+            drum_update_cell_visual(r, c);
+    drum_sec_apply_visual();
+    drum_dd_update_options();
+}
+
 void drum_seq_page_create(lv_obj_t *parent, lv_obj_t *title_lbl) {
     (void)title_lbl;
 
-    lv_obj_t *home = lv_btn_create(parent);
-    lv_obj_set_size(home, 55, 45);
-    lv_obj_set_pos(home, 5, 400);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(home, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(home, 6, 0);
-    lv_obj_set_style_border_width(home, 2, 0);
-    lv_obj_set_style_border_color(home, lv_color_hex(0x9B59B6), 0);
-    lv_obj_t *home_lbl = lv_label_create(home);
-    lv_label_set_text(home_lbl, LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_color(home_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(home_lbl, &lv_font_montserrat_24, 0);
-    lv_obj_center(home_lbl);
-    lv_obj_add_event_cb(home, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)-3);
+    // ---- Home (bottom-left) ----
+    mkbtn(parent, 5, 400, 55, 45,
+          0x9B59B6, LV_SYMBOL_LEFT,
+          &lv_font_montserrat_24,
+          eb, -3, 6, 2);
 
     drum_ptn_dd_create(parent);
     drum_sec_create(parent);
     drum_fl_btn_create(parent);
 
-    drum_play_btn = lv_btn_create(parent);
-    lv_obj_set_size(drum_play_btn, 55, 45);
-    lv_obj_set_pos(drum_play_btn, 480, 400);
-    lv_obj_set_style_bg_color(drum_play_btn, lv_color_hex(0x1A1A2E), 0);
-    lv_obj_set_style_bg_color(drum_play_btn, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(drum_play_btn, 6, 0);
-    lv_obj_set_style_border_width(drum_play_btn, 2, 0);
-    lv_obj_set_style_border_color(drum_play_btn, lv_color_hex(0x00FF00), 0);
+    // ---- Play/Stop (label cambiata runtime) ----
+    drum_play_btn = mkbtn(parent, 480, 400, 55, 45,
+                          0x00FF00, LV_SYMBOL_PLAY,
+                          &lv_font_montserrat_24,
+                          drum_play_btn_cb, 0, 6, 2);
+    drum_play_lbl = lv_obj_get_child(drum_play_btn, 0);
 
-    drum_play_lbl = lv_label_create(drum_play_btn);
-    lv_label_set_text(drum_play_lbl, "Play");
-    lv_obj_set_style_text_color(drum_play_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(drum_play_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(drum_play_lbl);
-    lv_obj_add_event_cb(drum_play_btn, drum_play_btn_cb, LV_EVENT_CLICKED, NULL);
+    if (!drum_step_timer) {
+        uint32_t period = (60000 / (uint32_t)drum_bpm) / 4;
+        if (period < 5) period = 5;
+        drum_step_timer = lv_timer_create(drum_step_timer_cb, period, NULL);
+    } else {
+        drum_seq_update_bpm(drum_bpm);
+    }
 
-    if (!drum_step_timer)
-        drum_step_timer = lv_timer_create(drum_step_timer_cb, 400, NULL);
-
+    // ---- Salva (bg custom 0xAA0000, resta manuale) ----
     lv_obj_t *save_btn = lv_btn_create(parent);
     lv_obj_set_size(save_btn, 70, 45);
     lv_obj_set_pos(save_btn, 705, 400);
@@ -776,19 +840,612 @@ void drum_seq_page_create(lv_obj_t *parent, lv_obj_t *title_lbl) {
     lv_obj_add_event_cb(save_btn, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)31);
 
     for (int r = 0; r < DRUM_ROWS; r++) drum_row_meter[r] = nullptr;
+    // … [resto invariato: drum_seqArr_init_if_needed, drum_view_load_from_seqArr, drum_grid_create, ecc.]
 
+//------------------------------------------
     drum_seqArr_init_if_needed();
     drum_view_load_from_seqArr();
 
     drum_grid_create(parent);
+	 lv_obj_update_layout(parent);   // forza il calcolo delle dimensioni
     drum_grid_update();
 
-    if (drum_meter_alpha == 0.0f) drum_meter_compute_alpha();
+       drum_meter_init();
     drum_meters_reset();
-    if (!drum_meter_timer)
-        drum_meter_timer = lv_timer_create(drum_meter_tick_cb,
-                                           DRUM_METER_TICK_MS, NULL);
 
     drum_playing      = false;
     drum_step_counter = 0;
+	    // Se la song è in play, mostra la vista della song
+    if (song_playing) {
+        drum_load_song_slot_into_view();
+        drum_step_counter = (uint8_t)song_play_step;
+        if (drum_cursor && lv_obj_is_valid(drum_cursor)) {
+            lv_obj_clear_flag(drum_cursor, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_x(drum_cursor,
+                drum_grid_x + drum_cursor_off_x
+                + song_play_step * drum_cell_w);
+        }
+    }
 }
+
+
+
+// ============================================================
+// BPM + SWING (pagina DRUM principale)
+// ============================================================
+lv_obj_t *drum_bpm_btn      = nullptr;
+lv_obj_t *drum_bpm_lbl      = nullptr;
+lv_obj_t *drum_swing_slider = nullptr;
+lv_obj_t *drum_swing_val_lbl= nullptr;
+uint16_t  drum_bpm   = 120;   // 60..250
+uint16_t  drum_swing = 0;     // 0..swingMax
+
+// Finestra popup BPM (tastiera numerica)
+static lv_obj_t *drum_bpm_win = nullptr;
+static lv_obj_t *drum_bpm_ta  = nullptr;
+
+// ------------------------------------------------------------
+// Calcolo swingMax per il BPM dato (stessa formula del Teensy)
+// ------------------------------------------------------------
+uint32_t drum_swing_max_for_bpm(uint16_t bpm) {
+    if (bpm < 60)  bpm = 60;
+    if (bpm > 250) bpm = 250;
+    uint32_t preSeqTime = (60000 / bpm) / 4;
+    if (preSeqTime < 4) return 0;
+    return (preSeqTime / 2) - 2;
+}
+
+static void drum_swing_update_label() {
+    if (!drum_swing_val_lbl || !lv_obj_is_valid(drum_swing_val_lbl)) return;
+
+    uint32_t sMax = drum_swing_max_for_bpm(drum_bpm);
+    if (sMax == 0) {
+        lv_label_set_text(drum_swing_val_lbl, "0 %");
+        return;
+    }
+
+    uint32_t pct = ((uint32_t)drum_swing * 100) / sMax;
+    if (pct > 100) pct = 100;
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%u %%", (unsigned)pct);
+    lv_label_set_text(drum_swing_val_lbl, buf);
+}
+
+// ------------------------------------------------------------
+// Aggiorna range+valore dello slider in base al BPM corrente
+// ------------------------------------------------------------
+
+// Ricalcola drum_swing per mantenere la STESSA PERCENTUALE
+// quando cambia swingMax (es. dopo un cambio BPM).
+static void drum_swing_scale_to_new_max(uint32_t oldMax, uint32_t newMax) {
+    if (oldMax == 0 || newMax == 0) {
+        drum_swing = 0;
+    } else {
+        uint32_t pct = ((uint32_t)drum_swing * 100) / oldMax;
+        if (pct > 100) pct = 100;
+        drum_swing = (uint16_t)((pct * newMax + 50) / 100);   // arrotonda
+        if (drum_swing > newMax) drum_swing = (uint16_t)newMax;
+    }
+
+    if (drum_swing_slider && lv_obj_is_valid(drum_swing_slider)) {
+        lv_slider_set_range(drum_swing_slider, 0, (int32_t)newMax);
+        lv_slider_set_value(drum_swing_slider, drum_swing, LV_ANIM_OFF);
+    }
+    drum_swing_update_label();
+}
+
+
+// ------------------------------------------------------------
+// Echo dal Teensy
+// ------------------------------------------------------------
+
+void drum_bpm_set_from_teensy(uint16_t bpm) {
+    if (bpm < 60)  bpm = 60;
+    if (bpm > 250) bpm = 250;
+
+    uint32_t oldMax = drum_swing_max_for_bpm(drum_bpm);
+    if (oldMax > 255) oldMax = 255;
+
+    drum_bpm = bpm;
+
+    if (drum_bpm_lbl && lv_obj_is_valid(drum_bpm_lbl)) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "BPM %u", (unsigned)drum_bpm);
+        lv_label_set_text(drum_bpm_lbl, buf);
+    }
+
+    uint32_t newMax = drum_swing_max_for_bpm(drum_bpm);
+    if (newMax > 255) newMax = 255;
+
+    drum_swing_scale_to_new_max(oldMax, newMax);
+
+    // Aggiorna velocità PTN e SONG
+    drum_seq_update_bpm(drum_bpm);
+    song_update_bpm(drum_bpm);
+}
+
+void drum_swing_set_from_teensy(uint16_t swing) {
+    uint32_t sMax = drum_swing_max_for_bpm(drum_bpm);
+    if (swing > sMax) swing = (uint16_t)sMax;
+    drum_swing = swing;
+
+    if (drum_swing_slider && lv_obj_is_valid(drum_swing_slider)) {
+		  lv_slider_set_range(drum_swing_slider, 0, (int32_t)sMax);
+        lv_slider_set_value(drum_swing_slider, drum_swing, LV_ANIM_OFF);
+    }
+     drum_swing_update_label();
+}
+
+// ------------------------------------------------------------
+// Slider SWING: drag → aggiorna valore + invia 'W' al Teensy
+// ------------------------------------------------------------
+static void drum_swing_cb(lv_event_t *e) {
+    lv_obj_t *s = lv_event_get_target(e);
+    int v = lv_slider_get_value(s);
+    drum_swing = (uint16_t)v;
+    drum_swing_update_label();	
+    send_param_update(ID_TEENSY, 'W', (uint8_t)v);
+}
+
+// ------------------------------------------------------------
+// Popup tastiera numerica per BPM
+// ------------------------------------------------------------
+void drum_close_bpm_window() {
+    if (drum_bpm_win) {
+        lv_obj_del(drum_bpm_win);
+        drum_bpm_win = nullptr;
+        drum_bpm_ta  = nullptr;
+    }
+}
+
+static void drum_bpm_confirm_cb(lv_event_t *e) {
+    (void)e;
+    if (!drum_bpm_ta) return;
+    const char *txt = lv_textarea_get_text(drum_bpm_ta);
+    int val = atoi(txt);
+    if (val < 60)  val = 60;
+    if (val > 250) val = 250;
+
+    uint32_t oldMax = drum_swing_max_for_bpm(drum_bpm);
+    if (oldMax > 255) oldMax = 255;
+
+    drum_bpm = (uint16_t)val;
+
+    if (drum_bpm_lbl && lv_obj_is_valid(drum_bpm_lbl)) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "BPM %u", (unsigned)drum_bpm);
+        lv_label_set_text(drum_bpm_lbl, buf);
+    }
+
+    uint32_t newMax = drum_swing_max_for_bpm(drum_bpm);
+    if (newMax > 255) newMax = 255;
+
+    drum_swing_scale_to_new_max(oldMax, newMax);
+
+    // Aggiorna velocità PTN e SONG
+    drum_seq_update_bpm(drum_bpm);
+    song_update_bpm(drum_bpm);
+
+    // Invia al Teensy
+    send_param_update(ID_TEENSY, 'b', (uint8_t)drum_bpm);
+    send_param_update(ID_TEENSY, 'W', (uint8_t)drum_swing);
+
+    drum_close_bpm_window();
+}
+
+static void drum_bpm_cancel_cb(lv_event_t *e) {
+    (void)e;
+    drum_close_bpm_window();
+}
+
+static void drum_bpm_btn_cb(lv_event_t *e) {
+    (void)e;
+    if (drum_bpm_win) return;
+
+    drum_bpm_win = lv_win_create(lv_scr_act(), 0);
+    lv_obj_set_size(drum_bpm_win, 420, 380);
+    lv_obj_set_pos(drum_bpm_win, 190, 50);
+    lv_obj_set_style_bg_color(drum_bpm_win, lv_color_hex(0x111111), 0);
+    lv_obj_set_style_border_color(drum_bpm_win, lv_color_hex(0x00AAFF), 0);
+    lv_obj_set_style_border_width(drum_bpm_win, 2, 0);
+    lv_obj_set_style_radius(drum_bpm_win, 8, 0);
+
+    lv_obj_t *client = lv_win_get_content(drum_bpm_win);
+    lv_obj_set_style_pad_all(client, 10, 0);
+    lv_obj_set_style_bg_color(client, lv_color_hex(0x000000), 0);
+    lv_obj_set_flex_flow(client, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(client, 10, 0);
+
+    lv_obj_t *lbl = lv_label_create(client);
+    lv_label_set_text(lbl, "BPM (60..250)");
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
+
+    drum_bpm_ta = lv_textarea_create(client);
+    lv_obj_set_size(drum_bpm_ta, 380, 50);
+    lv_obj_set_style_bg_color(drum_bpm_ta, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_text_color(drum_bpm_ta, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_width(drum_bpm_ta, 1, 0);
+    lv_obj_set_style_border_color(drum_bpm_ta, lv_color_hex(0x00AAFF), 0);
+    lv_obj_set_style_text_font(drum_bpm_ta, &lv_font_montserrat_24, 0);
+    lv_textarea_set_one_line(drum_bpm_ta, true);
+    lv_textarea_set_max_length(drum_bpm_ta, 3);
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%u", (unsigned)drum_bpm);
+    lv_textarea_set_text(drum_bpm_ta, buf);
+
+    lv_obj_t *kb = lv_keyboard_create(client);
+    lv_obj_set_size(kb, 380, 200);
+    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_NUMBER);
+    lv_keyboard_set_textarea(kb, drum_bpm_ta);
+    lv_obj_set_style_text_font(kb, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(0x222222), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(0x444444), LV_STATE_PRESSED);
+    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+
+    lv_obj_t *btn_cont = lv_obj_create(client);
+    lv_obj_set_size(btn_cont, 380, 50);
+    lv_obj_set_style_bg_opa(btn_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(btn_cont, 0, 0);
+    lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(btn_cont, 20, 0);
+
+    lv_obj_t *ok = lv_btn_create(btn_cont);
+    lv_obj_set_size(ok, 120, 40);
+    lv_obj_set_style_bg_color(ok, lv_color_hex(0x1A6B4A), 0);
+    lv_obj_t *ok_l = lv_label_create(ok);
+    lv_label_set_text(ok_l, "OK");
+    lv_obj_set_style_text_color(ok_l, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(ok_l);
+    lv_obj_add_event_cb(ok, drum_bpm_confirm_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *cancel = lv_btn_create(btn_cont);
+    lv_obj_set_size(cancel, 120, 40);
+    lv_obj_set_style_bg_color(cancel, lv_color_hex(0x6B1A1A), 0);
+    lv_obj_t *cn_l = lv_label_create(cancel);
+    lv_label_set_text(cn_l, "Annulla");
+    lv_obj_set_style_text_color(cn_l, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(cn_l);
+    lv_obj_add_event_cb(cancel, drum_bpm_cancel_cb, LV_EVENT_CLICKED, NULL);
+}
+
+// ------------------------------------------------------------
+// Creazione dei widget BPM + SWING (chiamato da create_page DRUM)
+// ------------------------------------------------------------
+void drum_bpm_swing_create(lv_obj_t *parent) {
+    // ---- Bottone BPM (top-right) ----
+
+    drum_bpm_btn = mkbtn(parent, 640, 10, 140, 50,
+                         0x00AAFF, "",
+                         &lv_font_montserrat_24,
+                         drum_bpm_btn_cb, 0, 6, 2);
+    drum_bpm_lbl = lv_obj_get_child(drum_bpm_btn, 0);
+    {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "BPM %u", (unsigned)drum_bpm);
+        lv_label_set_text(drum_bpm_lbl, buf);
+    }
+
+    // ---- Slider SWING (sotto BPM) ----
+    // Container verticale: nome top + slider + valore bottom
+    const int SL_W = 60;
+    const int SL_H = 200;
+    const int SL_X = 723;   // 800 - 10 margin - 60 = 730
+    const int SL_Y = 90;
+
+    lv_obj_t *c = lv_obj_create(parent);
+    lv_obj_set_size(c, SL_W, SL_H + 50);
+    lv_obj_set_pos(c, SL_X, SL_Y);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(c, 0, 0);
+    lv_obj_set_style_pad_all(c, 0, 0);
+    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Label nome "SWING" (top)
+    lv_obj_t *lbl = lv_label_create(c);
+    lv_label_set_text(lbl, "SWING");
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 0);
+
+    // Slider (center) — stile immagini come in REV
+    lv_obj_t *s = lv_slider_create(c);
+    lv_obj_set_size(s, SL_W, SL_H);
+    lv_obj_align(s, LV_ALIGN_CENTER, 0, 6);
+    uint32_t sMax = drum_swing_max_for_bpm(drum_bpm);
+    if (sMax > 255) sMax = 255;
+    lv_slider_set_range(s, 0, (int32_t)sMax);
+    lv_slider_set_value(s, drum_swing, LV_ANIM_OFF);
+
+    lv_obj_set_style_bg_img_src(s, &img_slider_track, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_src(s, &img_slider_indicator, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_recolor(s, lv_color_hex(0x00AAFF),
+                                    LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_recolor_opa(s,
+        (sliderColorDepth * 255) / 100, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_src(s, &img_slider_knob, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_width(s, 45, LV_PART_KNOB);
+    lv_obj_set_style_height(s, 30, LV_PART_KNOB);
+
+    drum_swing_slider = s;
+
+    // Label valore (bottom)
+       drum_swing_val_lbl = lv_label_create(c);
+    lv_obj_set_style_text_color(drum_swing_val_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(drum_swing_val_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_align(drum_swing_val_lbl, LV_ALIGN_BOTTOM_MID, 0, 0);
+    drum_swing_update_label();
+
+    lv_obj_add_event_cb(s, drum_swing_cb, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+
+// ============================================================
+// MIX — 8 slider livelli voce (in riga con SWING)
+// ============================================================
+lv_obj_t *drum_mix_slider [DRUM_MIX_COUNT] = {nullptr};
+lv_obj_t *drum_mix_val_lbl[DRUM_MIX_COUNT] = {nullptr};
+uint8_t   drum_mix_val    [DRUM_MIX_COUNT] = {14,14,14,14,14,14,14,14};
+
+// Nomi voce (in ordine come in kitLevArr)
+static const char *drum_mix_names[DRUM_MIX_COUNT] = {
+    "BD", "SD", "HH", "HH2", "CLAP", "P1", "P2", "P3"
+};
+
+// Colori dei nomi riga in PTN (per BD, SD, HH, H2, Cp, P1, P2, P3)
+static const uint32_t drum_mix_colors[DRUM_MIX_COUNT] = {
+    0xAA0044,  // BD
+    0xFF8800,  // SD
+    0xFFFF00,  // HH
+    0xAAAA00,  // HH2  (H2 in PTN)
+    0x00FF00,  // CLAP (Cp in PTN)
+    0x00AAFF,  // PERC1
+    0x00AAFF,  // PERC2
+    0x00AAFF   // PERC3
+};
+
+// Voice index 1-based per comando LWS 'V' (mappa ai seqArr idx)
+//   BD=0->V1, SD=1->V2, HH=2->V3, HH2=4->V5, CLAP=5->V6,
+//   PERC1=6->V7, PERC2=7->V8, PERC3=8->V9
+static const uint8_t drum_mix_voice[DRUM_MIX_COUNT] = {
+    1, 2, 3, 5, 6, 7, 8, 9
+};
+
+static void drum_mix_slider_cb(lv_event_t *e) {
+    lv_obj_t *s = lv_event_get_target(e);
+    int idx = (int)(uintptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= DRUM_MIX_COUNT) return;
+
+    int v = lv_slider_get_value(s);
+    drum_mix_val[idx] = (uint8_t)v;
+
+    if (drum_mix_val_lbl[idx] && lv_obj_is_valid(drum_mix_val_lbl[idx])) {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d", v);
+        lv_label_set_text(drum_mix_val_lbl[idx], buf);
+    }
+
+    // LWS: prima seleziona la voce, poi imposta il livello
+    send_param_update(ID_TEENSY, 'V', drum_mix_voice[idx]);
+    send_param_update(ID_TEENSY, 'L', (uint8_t)v);
+}
+
+// Trigger dei meter MIX da uno slot song
+void drum_mix_meters_trigger_from_slot(int slot, uint8_t step) {
+    if (slot < 0 || slot >= (int)songLen[song_cur_song]) return;
+    if (step >= 16) return;
+
+    uint8_t tipo = songArr[song_cur_song][SONG_COL_TIPO][slot];
+    uint8_t num  = songArr[song_cur_song][SONG_COL_NUM][slot];
+
+    uint8_t vals[DRUM_MIX_COUNT] = {0};
+
+    if (tipo == 4) {
+        // Fill
+        for (int r = 0; r < DRUM_MIX_COUNT; r++) {
+            int seqRow;
+            switch (r) {
+                case 0: seqRow = 0; break;   // BD
+                case 1: seqRow = 1; break;   // SD
+                case 2:                       // HH = max(HH, OH)
+                {
+                    uint8_t hh = drum_fillArr[num][2][step];
+                    uint8_t oh = drum_fillArr[num][3][step];
+                    vals[r] = (hh > oh) ? hh : oh;
+                    continue;
+                }
+                case 3: seqRow = 4; break;   // HH2
+                case 4: seqRow = 5; break;   // CLAP
+                case 5: seqRow = 6; break;   // P1
+                case 6: seqRow = 7; break;   // P2
+                case 7: seqRow = 8; break;   // P3
+                default: seqRow = 0; break;
+            }
+            vals[r] = drum_fillArr[num][seqRow][step];
+        }
+    } else {
+        // Sezione A/B/C/D del pattern
+        uint8_t sec = tipo;   // 0..3
+        uint8_t s = sec * 16 + step;
+        for (int r = 0; r < DRUM_MIX_COUNT; r++) {
+            int seqRow;
+            switch (r) {
+                case 0: seqRow = 0; break;
+                case 1: seqRow = 1; break;
+                case 2:
+                {
+                    uint8_t hh = drum_seqArr[num][2][s];
+                    uint8_t oh = drum_seqArr[num][3][s];
+                    vals[r] = (hh > oh) ? hh : oh;
+                    continue;
+                }
+                case 3: seqRow = 4; break;
+                case 4: seqRow = 5; break;
+                case 5: seqRow = 6; break;
+                case 6: seqRow = 7; break;
+                case 7: seqRow = 8; break;
+                default: seqRow = 0; break;
+            }
+            vals[r] = drum_seqArr[num][seqRow][s];
+        }
+    }
+
+    for (int r = 0; r < DRUM_MIX_COUNT; r++) {
+        if (vals[r] > 0) {
+            drum_mix_meter_value[r] = (vals[r] * 100.0f) / 3.0f;
+            drum_mix_meter_hold[r]  = drum_meter_hold_ticks;
+        }
+    }
+}
+
+void drum_mix_meters_reset() {
+    for (int r = 0; r < DRUM_MIX_COUNT; r++) {
+        drum_mix_meter_value[r] = 0.0f;
+        drum_mix_meter_hold[r]  = 0;
+        if (drum_mix_meter[r] && lv_obj_is_valid(drum_mix_meter[r]))
+            lv_slider_set_value(drum_mix_meter[r], 0, LV_ANIM_OFF);
+    }
+}
+
+static lv_obj_t* drum_mix_slider_create(lv_obj_t *parent, int idx,
+                                        int x, int y, int w, int h,
+                                        int cont_h) {
+    const int METER_H = 24;
+    const int LBL_H   = 22;
+
+    lv_obj_t *c = lv_obj_create(parent);
+    lv_obj_set_size(c, w, cont_h);
+    lv_obj_set_pos(c, x, y);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(c, 0, 0);
+    lv_obj_set_style_pad_all(c, 0, 0);
+    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+
+    // ---- Micro meter (TOP del container) ----
+    lv_obj_t *mt = lv_slider_create(c);
+    lv_obj_set_size(mt, 22, METER_H);
+    lv_obj_align(mt, LV_ALIGN_TOP_MID, 0, 0);
+    lv_slider_set_range(mt, 0, 100);
+    lv_slider_set_value(mt, 0, LV_ANIM_OFF);
+    lv_obj_set_style_radius(mt, 0, 0);
+    lv_obj_set_style_radius(mt, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(mt, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(mt, 0, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(mt, 0, 0);
+    lv_obj_set_style_pad_all(mt, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(mt, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_pad_all(mt, 0, LV_PART_KNOB);
+    lv_obj_set_style_width(mt, 0, LV_PART_KNOB);
+    lv_obj_set_style_height(mt, 0, LV_PART_KNOB);
+    lv_obj_set_style_bg_img_src(mt, &img_micro_meter_audio_track, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(mt, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_img_src(mt, &img_micro_meter_audio_indicator, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(mt, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_src(mt, NULL, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(mt, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_border_width(mt, 0, LV_PART_KNOB);
+    lv_obj_set_style_outline_width(mt, 0, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(mt, 0, LV_PART_KNOB);
+    lv_obj_clear_flag(mt, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(mt, LV_OBJ_FLAG_SCROLLABLE);
+
+    drum_mix_meter[idx] = mt;
+
+    // ---- Label nome (BOTTOM del container) ----
+    lv_obj_t *lbl = lv_label_create(c);
+    lv_label_set_text(lbl, drum_mix_names[idx]);
+    lv_obj_set_style_text_color(lbl,
+        lv_color_hex(drum_mix_colors[idx]), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, 0);
+
+    // ---- Slider (BOTTOM, subito sopra al nome) ----
+    lv_obj_t *s = lv_slider_create(c);
+    lv_obj_set_size(s, w, h);
+    lv_obj_align(s, LV_ALIGN_BOTTOM_MID, 0, -(LBL_H + 4));
+    lv_slider_set_range(s, 0, 20);
+    lv_slider_set_value(s, drum_mix_val[idx], LV_ANIM_OFF);
+
+    lv_obj_set_style_bg_img_src(s, &img_slider_track, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_src(s, &img_slider_indicator, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_recolor(s,
+        lv_color_hex(drum_mix_colors[idx]), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_recolor_opa(s,
+        (sliderColorDepth * 255) / 100, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_img_src(s, &img_slider_knob, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_width(s, 45, LV_PART_KNOB);
+    lv_obj_set_style_height(s, 30, LV_PART_KNOB);
+
+    drum_mix_slider[idx] = s;
+
+    lv_obj_add_event_cb(s, drum_mix_slider_cb, LV_EVENT_VALUE_CHANGED,
+                        (void*)(uintptr_t)idx);
+    return s;
+}
+
+
+void drum_mix_create(lv_obj_t *parent) {
+    // ---- Frame DRUM MIX ----
+    //   y=70 → bottom a 385 (5px sopra i bottoni a y=390)
+    for (int i = 0; i < DRUM_MIX_COUNT; i++) drum_mix_meter[i] = nullptr;
+
+    const int FR_X = 10;
+    const int FR_Y = 70;
+    const int FR_W = 710;
+    const int FR_H = 315;   // era 285 → +30px guadagnati in basso
+
+    lv_obj_t *frame = lv_obj_create(parent);
+    lv_obj_set_size(frame, FR_W, FR_H);
+    lv_obj_set_pos(frame, FR_X, FR_Y);
+    lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(frame, 1, 0);
+    lv_obj_set_style_border_color(frame, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_radius(frame, 6, 0);
+    lv_obj_set_style_pad_all(frame, 10, 0);
+    lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(frame, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_set_style_clip_corner(frame, 0, 0);
+
+    lv_obj_t *fr_lbl = lv_label_create(frame);
+    lv_label_set_text(fr_lbl, "DRUM MIX");
+    lv_obj_set_style_text_color(fr_lbl, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(fr_lbl, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_bg_color(fr_lbl, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(fr_lbl, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(fr_lbl, 8, 0);
+    lv_obj_align(fr_lbl, LV_ALIGN_TOP_MID, 0, -22);
+
+    // ---- 8 slider equidistanti ----
+    //   Content area: 690 x (FR_H - 20) = 690 x 295
+    //   8 slider da 60px + 7 gap da 30px = 690
+    const int SL_W  = 60;
+    const int SL_H  = 180;                   // altezza slider invariata
+    const int N     = DRUM_MIX_COUNT;
+    const int INNER_W = FR_W - 20;
+    const int GAP = (INNER_W - N * SL_W) / (N - 1);
+    const int START_X = 0;
+
+    // Container riempie tutta la content area del frame:
+    //   meter TOP + slider CENTER + nome BOTTOM
+    const int CONT_H  = FR_H - 20;           // = 295
+    const int START_Y = 0;
+
+    for (int i = 0; i < N; i++) {
+        int x = START_X + i * (SL_W + GAP);
+        drum_mix_slider_create(frame, i, x, START_Y, SL_W, SL_H, CONT_H);
+    }
+    drum_mix_meters_reset();
+}//fine drum mix crate
+

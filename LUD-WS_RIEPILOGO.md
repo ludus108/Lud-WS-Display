@@ -4,7 +4,7 @@ LUD-WS — RIEPILOGO DI CONTINUITÀ (AGGIORNATO)
 Documento autocontenuto. Incollalo come primo messaggio in una nuova chat
 per riprendere il lavoro da dove è stato interrotto.
 
-Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/B + DRUM)
+Ultimo aggiornamento: 2026-10-01 (Display: split lvglGraf + DRUM completo)
 ================================================================================
 
 
@@ -495,86 +495,62 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
 
 
 -------------------------------------------------------------------------------
-9. LUD-WS-DISPLAY (ESP32-S3)
+9. LUD-WS-DISPLAY (ESP32-S3, v0.16)
 -------------------------------------------------------------------------------
 
 9.1 HARDWARE
 
   ESP32-S3, LVGL 800x480, SD preset + SD drum names.
-  Serial1 @ 1 Mbps verso Router.
+  Serial1 @ 1 Mbps verso Router (GPIO 18=RX, 17=TX).
   Cache locale: PresetCache cacheA[5] per SynthA, cacheB per SynthB.
 
-9.2 FILE E ARCHITETTURA (REFACTORING RECENTE)
+9.2 STRUTTURA FILE (REFACTORING RECENTE)
 
-  Cartella:
-    Lud-WS-Display/
-    ├── Lud-WS-Display.ino
-    ├── globals.h
-    ├── comunicazioni.h
-    ├── serial_protocol.h
-    ├── images.c
-    ├── images/
-    └── src/
-        ├── preset/
-        │   ├── preset_sd.h / .cpp
-        │   ├── preset_cache.h / .cpp
-        │   ├── preset_transfer.h
-        │   └── preset_ui.h
-        └── grafica/
-            ├── lvglGraf.h              (API pubblica)
-            ├── lvglGraf_internal.h     (header privato condiviso 3 .cpp)
-            ├── lvglGrafCore.cpp        (~1100 righe — widget/utility)
-            ├── lvglGrafPages.cpp       (~700 righe — pagine + eventi)
-            ├── lvglGrafModules.cpp     (~900 righe — drum/VCF-B/FX)
-            └── lvglGrafFunc.cpp.bak    (VECCHIO — non compilare)
+  Lud-WS-Display/
+  ├── Lud-WS-Display.ino
+  ├── globals.h
+  ├── comunicazioni.h / .cpp
+  ├── serial_protocol.h
+  ├── images.c + images/
+  └── src/
+      ├── preset/
+      │   ├── preset_sd.h / .cpp
+      │   ├── preset_cache.h / .cpp
+      │   ├── preset_transfer.h
+      │   └── preset_ui.h
+      └── grafica/
+          ├── lvglGraf.h                  (API pubblica)
+          ├── lvglGraf_internal.h         (header condiviso)
+          ├── lvglGrafCore.cpp            (widget/utility ~1100 righe)
+          ├── lvglGrafPages.cpp           (pagine + eventi + reset)
+          ├── lvglGrafDrum.cpp            (DRUM/SEQ editing)
+          ├── lvglGrafSong.cpp            (SONG editor)
+          ├── lvglGrafKit.cpp             (KIT editor)
+          ├── lvglGrafRev.cpp             (REV — riverbero)
+          ├── lvglGrafVcfB.cpp            (VCF SynthB)
+          ├── lvglGrafFx.cpp              (FX / FV-1)
+          ├── lvglPreset.cpp              (dropdown preset + rename)
+          └── lvglGrafModules.cpp.bak     (VECCHIO, non compilare)
 
-  Regola: NON devono coesistere lvglGrafFunc.cpp e i 3 nuovi (multiple
-  definition). Il vecchio è rinominato .bak.
+  Regola: NON devono coesistere lvglGrafModules.cpp e i nuovi file
+  (multiple definition). Il vecchio è rinominato .bak.
 
-  Catena dipendenze:  Core  →  Pages  →  Modules
+9.3 COMUNICAZIONE LWS
 
-  `lvglGraf_internal.h`:
-    - DBG macro con LGF_DBG (0/1)
-    - `extern const uint8_t ui2fw_wave[9]` (in Core)
-    - Statics condivise: DRUM, SYNTHB VCF, VCFB (RES/EnvA/EnvV), FX
-    - Prototipi cross-file: drum_seq_page_create, vcf_page_synthb_create,
-      fx_page_create, reset_ui_pointers, page_begin
-    - `void sB_vcf_env_plot_update();`
+  - Frame: [SENDER][SEQ][CMD][LEN][PAYLOAD][CRC8][&][!]
+  - CRC-8/ATM (poly 0x07, init 0x00)
+  - Discovery non bloccante: start() in setup, poll() in loop,
+    restart() da SET UP
+  - Nodi: 'D' Display, 'R' Router, 'a' SynthA_M, 'b' SynthA_V,
+    'c' SynthA_V2, 'B' SynthB, 'T' Teensy
+  - CMD usati dal Display:
+    - send_param_update(target, key, value) per CMD_PARAM
+    - send_param_voce / send_param_i32_voce per SynthA/B
+    - CMD_PRESET_* per trasferimento preset
+    - CMD_DRUM_PATTERN 'W' per PTN numero/nome
+    - Teensy: 'Q' = request pattern, 'Y' = save pattern
 
-  `lvglGrafCore.cpp` (14 sezioni):
-    1. Widget base: btn, home_btn_at (statica), home_btn
-    2. Slider: slider (con freccina), slider_plain (senza freccina)
-    3. DCO: h_slider
-    4. Plotter wave: grid_btn_click, populate_grid, update_wave_plot,
-       update_plotter_by_wave
-    5. LED/colori: update_leds, update_slider_color,
-       update_shape_slider_color
-    6. Arc: earc_changed, arc_with_image, create_pot_container
-    7. Timeline: tl_set_buttons, create_timeline*, update_timeline
-    8. Submenu (con suffisso A/B)
-    9. Meter: meter, update_meters, stop_meters
-    10. Log/toast: log_add, toast_show, create_log_widget
-    11. EEPROM brightness
-    12. reset_arrows
-    13. Envelope plotter: create_env_plot, compute_env_points (statica),
-        update_env_plot, env_plot_draw
-    14. Keyboard: create_keyboard, update_keyboard_colors
-
-  `lvglGrafPages.cpp`:
-    - reset_ui_pointers(), page_begin(title)
-    - create_preset_label (statica)
-    - create_home(), create_page(title)
-    - Event handler: eb, ebright, eslider, ecat_btn, ecat_cycle,
-      fm_edit_btn_cb, ehslider, elist
-    - Callback MIDI: midi_split_cb, midi_ch_a/b/d_cb
-    - disc_btn_click
-
-  `lvglGrafModules.cpp`:
-    1. DRUM sequencer
-    2. SYNTHB VCF page (6 stati + 5 arc + plotter ADSR)
-    3. FX / FV-1
-
-9.3 SISTEMA PRESET
+9.4 SISTEMA PRESET
 
   SD:
     /preset/synthA/preset_00.bin .. preset_29.bin
@@ -604,220 +580,281 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
   Wrapper nel .ino:
     requestPresetLoad, requestPresetSave, requestRenameApply
 
-9.4 NAMING DRUM SU DISPLAY SD
+9.5 PAGINA DRUM (layout principale)
 
-  Nomi per kit, song, sample drum. I nomi vivono solo sul Display,
-  il Teensy lavora con indici. Il Display traduce nome <-> indice
-  prima di inviare comandi LWS.
+  Layout bottom (y=360):
+    [PTN]  [SONG]  [KIT]  [REV]                [← Home]
+    x=300  x=410   x=530  x=640                 x=10
+    90×90  90×90   90×90  90×90
 
-  Organizzazione file:
-    /drum/kit_names.txt          16 righe UTF-8, una per kit 0..15
-    /drum/song_names.txt         16 righe UTF-8, una per song 0..15
-    /drum/sample_names/
-        bd.txt      (12 righe)
-        sd.txt      (12 righe)
-        hh.txt      (14 righe)
-        oh.txt      (11 righe)
-        hh2.txt     (14 righe, identico a hh.txt)
-        clap.txt    (5 righe)
-        perc1.txt   (12 righe)
-        perc2.txt   (13 righe)
-        perc3.txt   (13 righe)
+  - PTN (blu 0x00AAFF) → pagina SEQ
+  - SONG (verde 0x00DD00) → pagina SONG
+  - KIT (arancione 0xFF8800) → pagina KIT
+  - REV (rosso scuro 0xAA0000) → pagina REV
+  - Home (viola 0x9B59B6) → HOME
 
-  Formato: UTF-8, LF, una riga per nome. Max 24 caratteri consigliati.
-  Righe vuote = fallback a nome default. File mancante = tutti default.
+9.6 PAGINA DRUM/PTN (editing pattern)
 
-  Editing: GUI offre text input (lv_keyboard + lv_textarea) per
-  rinominare kit, song e slot sample. Al salvataggio il Display
-  riscrive il file .txt corrispondente. Nessun comando LWS.
-
-9.5 NOMI SAMPLE DI DEFAULT
-
-  bd.txt (12):     LUD BAN MOS1 MOS2 LINN TR808 TR808L CR78 CR77
-                   TR76 MPOP HAM
-  sd.txt (12):     LUD KRI TR808A TR808B LINN MPOP TR76 CR78 SIMM
-                   HAM1 HAM2 SIMMRIM
-  hh.txt (14):     LUD LINN1 LINN2 TR808 MPOP HAM TR76 CR77 CR78
-                   MAR808 CABLINN CYM808A CYM808B RIDLINN
-  oh.txt (11):     LUD KRI TR808A TR808B TR909 LINN1 LINN2 MPOP
-                   HAM TR76 CR78
-  hh2.txt (14):    identico a hh.txt
-  clap.txt (5):    KANO KANOBR KANOBL LINN TR808
-  perc1.txt (12):  LC808A LC808B LC808C LC808D LT808A LT808B
-                   TOMLINN SIMMLT CONGLLINN MPOMXL TR76PERC CR78RIM
-  perc2.txt (13):  MC808A MC808B MC808C MT808A MT808B MT808C
-                   SIMMMT CONGMLINN BNGLINN MPOPCON TR76PERC
-                   CR78BLOC CR78GUI
-  perc3.txt (13):  HC808A HC808B HC808C HC808D HC808E HT808A HT808B
-                   HTSIMM CONGHLINN MPOPCL TR76PERC CR78BLOc CR78COW
-
-9.6 PAGINA DCO A / DCO B
-
-  Modifiche recenti:
-  - Bottone UNICO ciclico WF → FM → AM al posto di 3 bottoni separati.
-    Bordo colorato: WF=0x00AAFF, FM=0xFF8800, AM=0xAA44FF.
-    Posizione: (110, 360), a destra di home.
-  - Niente più LED (eliminati).
-  - Griglia Wave Shape a **4 colonne** (erano 5): WF_ITEMS ora 8 item
-    (SAW SAW8 TRI SQR SINE FM1 FM2 NOISE — rimosso FM3).
-  - Nessuna label "Wave Shape" né "SHAPE".
-  - Plotter + slider orizzontale spostati a sinistra (PLOT_X=10,
-    PLOT_Y=45, PLOT_W=220, PLOT_H=105). Slider sotto il plotter.
-  - Bottone "Edit" visibile **solo quando cat=FM**:
-    posizione (210, 360), bordo rosso 0xFF2222, apre pagina "FM Edit".
-  - Populate grid: bg non più colorato in selezione, bordo spesso 2px
-    colorato con colore della categoria (cat_color()).
-  - `ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8}` — attenzione: SynthB
-    firmware va adeguato perché WF ora ha 8 item (NOISE = ui2fw_wave[7]).
-
-  Nuovi elementi in ShapeData:
-    lv_obj_t *cat_btn;
-    lv_obj_t *cat_btn_lbl;
-    lv_obj_t *edit_btn;
-
-  Nuove callback:
-    ecat_cycle (cicla WF→FM→AM)
-    fm_edit_btn_cb (apre sotto-pagina "FM Edit")
-
-  Ramo `eb`: id `-4` = ritorno a DCO A/B dalla pagina FM Edit.
-
-9.7 PAGINA VCF B (SYNTHB) — COMPLETA
-
-  6 stati gestiti da `sB_vcf_apply_state()`:
-
-  | Stato    | F1                    | F2          | F3                     |
-  |----------|-----------------------|-------------|------------------------|
-  | FLT/UNI  | top="CUT"             | top="DET"   | disabilitato (grigio)  |
-  | FLT/SLV  | top="CUT"             | top="INT"   | top="INT"              |
-  | FLT/FRE  | top="CUT"             | top="CUT"   | top="CUT"              |
-  | WOV/POT  | lettere A E I O U A   | top="FORM"  | disabilitato           |
-  | WOV/ENV  | nascosto + dropdown    | top="FORM"  | top="TIME"             |
-  |          | ATT/SUS/REL           |             |                        |
-  | WOV/RND  | disabilitato          | top="FORM"  | top="TIME"             |
-
-  Struttura visiva:
-  - Arc F1/F2/F3 (y=80) + arc RES/EnvA/EnvV (y=216), x = {35, 170, 305}
-  - Ogni arc ha: label centrale, label valore sotto (offset -8),
-    pallino target rosso con crossing, 5 tick radiali grigi
-    (15×1px), top-label opzionale
-  - F1/F2/F3 supportano anche 6 lettere scala (solo WOV/POT)
-  - RES/EnvA/EnvV con pallino e crossing; **EnvA disabilitato in WOV**
-  - Dropdown ENV (ATT/SUS/REL): 50px wide, gap 5, start_x=5
-    → mappano A E I O U → 0..255 su chiavi 'V'/'Z'/'L'
-  - Plotter ADSR blu (0x0088FF) a (470, 58) 280×100 (2px sopra frame)
-  - Frame ENV vir 280×290 a (470, 160), label sopra il bordo (y=-20)
-  - Slider A D S R dentro il frame: **senza freccina** (slider_plain),
-    indicator azzurro 0x0022CC
-
-  Bottone SUBMODE 3-stati ciclico (UNI→SLV→FRE o POT→ENV→RND):
-  - Fondo scuro 0x1A1A2E, testo+bordo colorati (verde FLT, giallo WOV)
-  - Al cambio di modo si aggiorna automaticamente
-
-  LP/BP:
-  - Cambio modo FLT/WOV → forzato a LP/BP rispettivamente
-  - **Resta sempre cliccabile** (l'utente può sovrascrivere)
-
-  3 bottoni in basso a x={110, 205, 300}, y=360 (accanto a home).
-  Home a x=10, y=360.
-
-  Chiavi LWS inviate a SynthB:
-    'B' = sB_vcf_mode (0=Filter, 1=Wovel)
-    'C' = sB_filter_submode (0=UNI, 1=SLV, 2=FRE)
-    'K' = sB_wovel_submode (0=POT, 1=ENV, 2=RND)
-    'e' = sB_filter_type (0=LP, 1=BP)
-    '1','2','3' = sB_vcf_cut[0..2] (0..255)
-    'V' = wov_vowel_A (dropdown ATT)
-    'Z' = wov_vowel_B (dropdown SUS)
-    'L' = wov_env_vowel_C (dropdown REL)
-    **TODO**: mappatura LWS per RES/EnvA/EnvV (arc addizionali)
-
-9.8 PAGINA FX / FV-1
-
-  Frame FV-1 (lato destro): 258×310 a (470, 55)
-  - Label "FV-1" sopra il bordo (y=-22)
-  - Riga superiore:
-    - Dropdown P1..P8 (65×45)
-    - Bottone toggle "Rev1"/"Rev2" (80×45)
-      Rev1 = azzurro 0x0099FF, Rev2 = azzurro chiaro 0x66CCFF
-    - Bottone "Salva" rosso 0xAA0000 (85×45)
-  - 3 slider verticali SIZE/LF/HF con label centrate sopra
-
-9.9 PAGINA DRUM / SEQ
+  Layout:
+    Griglia a y=0 (top row libera)
+    Bottom row (y=400):
+      [←] [PTN 1▾] [A][B][C][D] [FL] [Play]    [Salva]
+       x=5  x=70   175..410     415  480       705
 
   Griglia 9×16:
-  - Righe: BD SD HH OH H2 Cp P1 P2 P3
-    (modifica recente: OH e HH scambiati → ora riga 2=HH, riga 3=OH)
-  - **TUTTE le righe a 4 stati** (prima solo SD e H2)
-  - Colore pallino/rettangolo = colore riga
-  - **Rettangolino invece di cerchio**:
-    - Larghezza = cell_width - 8 (4px sx + 4px dx)
-    - Altezza proporzionale allo stato:
-      - 0 = 0 (vuoto)
-      - 1 = 1/3 altezza disponibile
-      - 2 = 2/3
-      - 3 = 3/3 (tutta)
-  - **Long-press 1s → stato va a 0** (qualsiasi stato precedente)
-  - Tap breve (< 1s) cicla: 0 → 1 → 2 → 3 → 0
-  - 4 separatori verticali (1|2|3|4)
-  - Cursore step rosso (timer 400 ms)
-  - Play/Stop a (580, 360), Back-to-DRUM a (680, 360)
+    - X0=10, X1=770 (margine destro 30px)
+    - Label nome riga (14pt) a x=10
+    - Micro meter 22×24 a x=40
+    - Celle a x=54, quadrate 46×46 (cellW=45, cellH=45)
+    - Rettangolino colorato: larghezza = cw - 22px, altezza ∝ stato
+    - 4 separatori verticali giallo (col 0, 8) / grigio (col 4, 12)
+    - 8 linee orizzontali grigio 0x666666 tra le righe
+    - Cursore step rosso (1px, timer 400ms)
 
-  Long-press: implementato con lv_timer one-shot (1000ms),
-  cancellato su LV_EVENT_PRESS_LOST.
+  Celle a 4 stati (0=vuoto, 1=1/3, 2=2/3, 3=tutto):
+    - Tap breve: 0→1→2→3→0
+    - Long-press 1s: stato → 0
 
-9.10 ALTA PAGINA — LAYOUT GENERALE
+  Micro meter:
+    - Immagini img_micro_meter_audio_track/indicator (22×24)
+    - Envelope: attacco istantaneo + HOLD 100ms + DECAY 500ms
+    - Parametri in cima a lvglGrafDrum.cpp:
+      #define DRUM_METER_HOLD_MS  100.0f
+      #define DRUM_METER_DECAY_MS 500.0f
+      #define DRUM_METER_TICK_MS  25
+
+  Sezioni A/B/C/D:
+    - Bottone attivo: bordo 3px giallo 0xFFCC33
+    - Cambio sezione → carica seqArr[pattern][*][sec*16..+16]
+    - Pendente al boundary sul Teensy (cmd 'o')
+
+  Bottone FL (fill mode):
+    - Verde 0x00DD00 quando attivo
+    - Cambia la sorgente della griglia da seqArr a fillArr
+    - Dropdown cambia da "PTN 1..16" a "FLN 1..16"
+
+  Dropdown PTN/FLN:
+    - 95×45, bordo blu 0x00AAFF
+    - Niente freccia (lv_dropdown_set_symbol(dd, NULL))
+
+  Comandi LWS inviati:
+    'o' = sezione (0..3)
+    'N' = pattern select (0..15)
+    'i' = fill select (0..15)
+    'Y' = save pattern (Salva)
+
+9.7 PAGINA DRUM/SONG (editor song)
+
+  Layout:
+    Top row (y=3):
+      [SNG 1▾] [KIT▾] [A][B][C][D] [FLN 1▾]
+      x=5(95)  105(180) 300..510   545(95)
+
+    Frame griglia 4×8:
+      GX=32, GY=55, GW=736, GH=352
+      slot_w=92, slot_h=88, gap=4, cw=88, ch=84
+      Bordo giallo scuro 0x886600
+      Linee orizzontali grigio tra le righe
+      Linea verticale gialla 0x886600 tra col 4 e 5
+
+    Bottom row (y=415):
+      [←] [◄] 1/8 [►] [+] [-]
+       x=5  70  122  170 230 290
+
+  Array:
+    uint8_t  songArr[16][3][256];  // [song][0=tipo 1=num 2=kit][slot]
+    uint16_t songLen[16];          // slot effettivi (1..256, mai 0)
+    uint8_t  song_cur_song;        // 0..15
+    uint8_t  song_cur_page;        // 0..7
+    int      song_sel_slot;        // -1 = nessuno
+
+  Slot:
+    - Label KIT n (top, 14pt, bianco) — visibile se kit != 0
+    - Label A/B/C/D/FLN n (center, 24pt)
+    - Label numero slot 1-based (bottom, 16pt, grigio)
+    - Vuoto (oltre songLen): bordo grigio, non cliccabile
+    - Selezionato: bordo spesso 3px giallo 0xFFAA00
+
+  Comportamento:
+    - Tap su slot: seleziona/deseleziona
+    - Tap su A/B/C/D: scrive tipo (pattern = id song)
+    - Cambio FLN: scrive tipo=4 + fill num
+    - Cambio KIT: scrive kit (0=none, 1..16) su slot selezionato
+      (slot 1: kit permanente, non modificabile)
+    - +: aggiunge slot in coda (default A + kit 0)
+    - −: rimuove ultimo slot (mai sotto 1)
+    - ◄ ►: cambia pagina (32 slot/pagina)
+    - Cambio SNG: carica song, pagina 0, selezione azzerata
+
+  Dropdown KIT: 17 item ("NO KIT" + "n Nome" per 16 kit)
+  - Larghezza 180px, font 16
+
+9.8 PAGINA DRUM/KIT (editor kit)
+
+  Layout:
+    Top row (y=5):
+      [KIT n Nome▾]  [REV n▾]     [RINOMINA]
+       x=350(180)      x=540(120)   x=670(120)
+
+    Griglia 3×3 di dropdown (y=70):
+      CELL_W=240, CELL_H=110, GRID_X=40, GRID_Y=70
+
+      Riga 1:  [BD▾]     [SD▾]     [HH▾]
+      Riga 2:  [OH▾]     [H2▾]     [CLAP▾]
+      Riga 3:  [PERC1▾]  [PERC2▾]  [PERC3▾]
+
+  Array/strutture:
+    char kit_names[16][24]  (nomi kit, editabili in RAM)
+    kitArr[10][16]  copiato da lista.h:
+      righe 0..8 = voci, riga 9 = REV
+      colonne 0..10 = kit 1..11 (11 kit)
+    maxArr[9]  = {11, 11, 13, 10, 13, 4, 11, 12, 12}  (da lista.h)
+
+  Nomi kit di default:
+    1 Lud1    2 Lud2   3 Lud3    4 808     5 909
+    6 Linn    7 miniPop 8 TR76   9 CR77    10 CR78   11 Hammond
+    12 MPC60  13 DMX   14 SP1200 15 RX5    16 User
+
+  Nomi set per voce (estratti da lista.h, senza suffisso arr):
+    BD (12):     LUDBD, BDBAN, BDMOS1, BDMOS2, BDLINN, BD808,
+                 BD808L, CR78BD, CR77BD, TR76BD, MPOPBD, HAMBD
+    SD (12):     LUDSD, SDKRI, SD808, SD808B, SDLINN, MPOPSD,
+                 TR76SD, CR78SD, SIMMSD, HAMSDA, HAMSDB, SIMMRIM
+    HH (14):     LUDHH, HHLINN, LINNHHB, CH808, MPOPHH, HAMHH,
+                 TR76HH, CR77HH, CR78HH, MAR808, CABLINN,
+                 CYM808A, CYM808B, RIDLINN
+    OH (11):     LUDOH, OHKRI, OH808, OH808B, OH909A, OHLINN,
+                 OHBLINN, MPOPHO, HAMHOB, TR76HO, CR78HO
+    H2 (14):     identico a HH
+    CLAP (5):    KANO, KANOBR, KANOBL, CLAPLINN, CLAP808
+    PERC1 (12):  LC808A/B/C/D, LT808A/B, TOMLINN, SIMMLT,
+                 CONGLLINN, MPOMXL, TR76PER1C, CR78RIM
+    PERC2 (13):  MC808A/B/C, MT808A/B/C, SIMMMT, CONGMLINN,
+                 BNGLINN, MPOPCON, TR76PER2C, CR78BLO1, CR78GUI
+    PERC3 (13):  HCA808, HCB808, HCC808, HCD808, HCE808,
+                 HT808A/B, SIMMHT, CONGHLINN, MPOPCL,
+                 TR76PER3C, CR78BLO2, CR78COW
+
+  Comportamento:
+    - Cambio KIT n → tutti i 9 dropdown + dropdown REV si aggiornano
+      ai valori di kitArr[voce][kit]
+    - Cambio singolo dropdown voce → solo visualizzazione per ora
+      (nessun comando LWS; la pagina serve per programmare)
+    - Cambio REV → idem
+    - Tap RINOMINA → finestra modale con textarea precompilata col
+      nome del kit corrente + tastiera LVGL; OK salva in kit_names[]
+      e aggiorna dropdown; Annulla chiude
+    - Persistenza kit_names su SD: TODO
+
+9.9 PAGINA DRUM/REV (riverbero)
+
+  Layout:
+    Top (y=5):
+      [REV n▾]  (a x=90, dopo il titolo)
+      110×45, bordo rosso scuro 0xAA0000
+
+    8 slider (y=100, h=200):
+      start_x = 55, larghezza totale 690, gap 30
+      PRED  SIZE  DAMP  CUT1  RES1  CUT2  RES2  LEV
+      x=55  145   235   325   415   505   595   685
+
+      Ogni slider in container verticale (nome top 14pt,
+      slider center, valore bottom 16pt).
+
+    Bottom (y=415):
+      [← Home]                [SER|PAR]
+       x=5                     x=340(120)
+
+  Colori slider:
+    PRED    0x00DD00  verde
+    SIZE    0x00AAFF  azzurro
+    DAMP    0xAA44FF  viola
+    CUT1    0xCC0066  rosso porpora
+    RES1    0xFFCC33  giallo
+    CUT2    0xCC0066  rosso porpora
+    RES2    0xFFCC33  giallo
+    LEV     0xCC3300  rosso
+
+  Slider: immagini img_slider_track/indicator/knob, no freccina,
+    range 0..20
+
+  Toggle SER/PAR:
+    - blu 0x0099FF quando SER (rev_mode=0)
+    - arancione 0xFF8800 quando PAR (rev_mode=1)
+
+  Array revPresetArr[9][16] (copiato da specifica utente):
+    riga 0 = room size  → SIZE
+    riga 1 = damping    → DAMP
+    riga 2 = cut off    → CUT1
+    riga 3 = res        → RES1
+    riga 4 = pre dly    → PRED
+    riga 5 = cut off2   → CUT2
+    riga 6 = res 2      → RES2
+    riga 7 = filtSet    → SER/PAR
+    riga 8 = lev out    → LEV
+
+  Comportamento:
+    - Cambio REV n → aggiorna 8 slider + SER/PAR da revPresetArr
+    - Modifica manuale slider → solo valore locale
+
+9.10 ALTRE PAGINE (non DRUM)
 
   HOME:
   - Titolo LUD-WS + versione, slider luminosità top-right
-  - Log widget 700×240 a (50, 97), auto-hide dopo 2000ms
+  - Log widget 700×240 a (50, 97), auto-hide 2000ms
   - 6 bottoni: PLAY / SYNTH A / SYNTH B / DRUM / FX / SET UP
 
   SYNTH A/B:
   - Preset selector (dropdown + + / - / Sel / Save) + label + Rinomina
-  - Submenu in basso con suffisso: "DCO A" / "DCO B", ecc.
+  - Submenu DCO/VCF/MOD/VCA/DLY in basso
   - Home a sinistra
 
+  DCO A/B:
+  - Bottone ciclico WF→FM→AM (bordo 0x00AAFF / 0xFF8800 / 0xAA44FF)
+  - Griglia Wave Shape a 4 colonne (8 item WF, FM3 rimosso)
+  - Plotter + slider a sinistra (PLOT_X=10, PLOT_Y=45)
+  - Bottone "Edit" visibile solo quando cat=FM
+  - ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8}
+
   VCF A / VCF B:
-  - VCF-A: slider con freccina, cornice ENV vir 320×300 a (460, 60)
-  - VCF-B: come 9.7
+  - VCF-A: 4 slider con freccina
+  - VCF-B: 6 stati (FLT/UNI-SLV-FRE + WOV/POT-ENV-RND)
+    con top-label CUT/DET/INT/FORM/TIME, arc F1/F2/F3 +
+    arc RES/EnvA/EnvV, plotter ADSR blu, dropdown ENV ATT/SUS/REL
 
-  VCA A / VCA B:
-  - 4 slider in cornice + plotter ENV a (20, 100)
+  VCA A/B: 4 slider in cornice + plotter ENV
 
-  MIDI:
-  - Tastiera 32 tasti (F3..C6) a (380, 5) 360×85
-  - 3 righe: SynthA, SynthB, DRUM con dropdown CH
-  - SPLIT dropdown (32 note)
+  FX: frame FV-1 (dropdown P1..P8, Rev1/Rev2 toggle, Salva,
+    3 slider verticali SIZE/LF/HF)
 
-9.11 CHIAVI EEPROM
+  MIDI: tastiera 32 tasti (F3..C6), 3 righe (SynthA/B/DRUM) con
+    dropdown CH, SPLIT dropdown 32 note
 
-  5 byte:
-  - [0] bright 0..100
-  - [1] midi_channel_A 1..16
-  - [2] midi_channel_B 1..16
-  - [3] midi_channel_D 1..16
-  - [4] midi_split 0..31 (0=F3)
+9.11 COMANDI eb (id)
 
-  API: load_all_settings() in setup, save_all_settings() da SET UP (id 21).
+  -1  → HOME
+  -2  → torna al synth corrente (g.synth)
+  -3  → torna a DRUM
+  -4  → torna a DCO A/B
+  0..5 → pagine principali (PLAY, SYNTH A, SYNTH B, DRUM, FX, SET UP)
+  10..14 → submenu (DCO/VCF/MOD/VCA/DLY)
+  20  → MIDI
+  21  → save_all_settings
+  30  → SEQ
+  31  → Salva pattern (send 'Y')
+  32  → SONG
+  33  → KIT
+  34  → REV
 
-9.12 DRUM GUI — STATO ATTUALE
+9.12 CHIAVI EEPROM (5 byte)
 
-  Implementato:
-  - Griglia 9×16 con 4 stati per ogni voce
-  - Rettangolino colorato invece di cerchio
-  - Long-press 1s → stato 0
-  - Play/Stop con cursore step (timer 400ms)
-  - Bottone Salva (invia 'Y' a Teensy)
+  [0] bright 0..100
+  [1] midi_channel_A 1..16
+  [2] midi_channel_B 1..16
+  [3] midi_channel_D 1..16
+  [4] midi_split 0..31 (0=F3)
 
-  Da implementare / progettare:
-  - Selezione sezione A/B/C/D (comando 'o')
-  - Fill select ('i') + Fill trigger ('h') con griglia fill
-  - Song editor (lista slot 256, rename)
-  - Kit editor (voice/sample names a nome + rename)
-  - Mute toggle (6 pulsanti)
-  - BPM/Swing/Trasporto completi
-  - Text input LVGL riutilizzabile per rename
-  - Lettura/scrittura /drum/*.txt su SD
+  API: load_all_settings() in setup, save_all_settings() da SET UP
 
 
 -------------------------------------------------------------------------------
@@ -829,11 +866,6 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
   Converte PTNxx.TXT / PTN_FILLxx.TXT / SONGxx.TXT in .BIN per la SD
   del Teensy.
 
-  Input:
-    PTN00.TXT .. PTN15.TXT           -> PTN00.BIN .. PTN15.BIN (9x64)
-    PTN_FILL00.TXT .. PTN_FILL15.TXT -> PTN_FILL00.BIN ..       (9x16)
-    SONG00.TXT .. SONG15.TXT         -> SONG00.BIN ..           (256 slot)
-
   Formati:
     .BIN pattern: magic 'P' ver 0x02 rows 9 cols 64 + payload + crc8
     .BIN fill:    magic 'F' ver 0x01 rows 9 cols 16 + payload + crc8
@@ -841,7 +873,7 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
 
 10.2 gen_sample_names.py — DRUM (fatto)
 
-  Genera /drum/sample_names/*.txt con i nomi di default del punto 9.5.
+  Genera /drum/sample_names/*.txt con i nomi di default.
 
 10.3 Python generator preset — SYNTH (esistente)
 
@@ -866,39 +898,46 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
 
     #define PWM_IRQ_RATE_HZ   30500.0f
 
-  Nel .ino: const float masterFreq = PWM_CLKDIV_BASE; (era 4.0f)
+  Nel .ino: const float masterFreq = PWM_CLKDIV_BASE;
 
   Arduino IDE 2.x:
-    Board: Raspberry Pi Pico 2 (o Pico 2 W se con WiFi)
+    Board: Raspberry Pi Pico 2
     CPU Speed: 150 MHz
     Optimize: -O3 (per FPU)
     USB Stack: Pico SDK
     PSRAM: Disabled
-    Debug Port: Serial (o Disabled)
 
   Pin occupati da Pico 2 W (WiFi): GP23, GP24, GP25, GP29
   -> Nel progetto NON sono usati, nessun conflitto.
 
 
 -------------------------------------------------------------------------------
-12. ARDUINO IDE 2 — SETUP TEENSY 4.1
+12. ARDUINO IDE 2 — SETUP
 -------------------------------------------------------------------------------
 
-  Board:        Teensy 4.1
-  CPU Speed:    600 MHz
-  Optimize:     Fastest
-  USB Type:     Serial
-  PSRAM:        Disabled
-  Debug Port:   Serial
+  Teensy 4.1:
+    Board:        Teensy 4.1
+    CPU Speed:    600 MHz
+    Optimize:     Fastest
+    USB Type:     Serial
+    PSRAM:        Disabled
 
-  Nota importante:
-    - La libreria Audio deve essere quella di Teensyduino, NON una
-      copia locale in <sketchbook>/libraries/Audio.
-    - Se il Boards Manager di Arduino IDE 2 non installa correttamente
-      la libreria Audio, scaricarla manualmente da
-      https://github.com/PaulStoffregen/Audio e copiarla in
-      .../packages/teensy/hardware/avr/<versione>/libraries/Audio
-    - Rimuovere ogni cartella Audio locale per evitare conflitti.
+    Nota: usare la libreria Audio di Teensyduino, NON una copia
+    locale in <sketchbook>/libraries/Audio.
+
+  ESP32-S3 (Display):
+    Board:        ESP32S3 Dev Module
+    FQBN:         esp32:esp32:esp32s3:FlashSize=16M,
+                  PartitionScheme=app3M_fat9M_16MB,PSRAM=opi
+    CPU Speed:    240 MHz
+    Flash Mode:   QIO
+    PSRAM:        OPI
+
+  Problemi noti:
+    - Link error "objs.a file truncated" → reinstallare pacchetto
+      esp32 dal Boards Manager (più efficace di pulire solo la cache)
+    - Cache sketch corrotta:
+      C:\Users\<user>\AppData\Local\arduino\sketches
 
 
 -------------------------------------------------------------------------------
@@ -907,8 +946,8 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
 
   Voce globale SynthA: 0..4
   Voce locale SynthA:  0..NUM_VOCI-1
-  Sub_voce SynthA:     0..1 (2 per voce)
-  POLIMAX SynthB:      6 (slot parafonici)
+  Sub_voce SynthA:     0..1
+  POLIMAX SynthB:      6
   Voice=0 fisso per SynthB
 
   Chiavi K_*: uint8 (nome 1 char) o int32 (int32_le)
@@ -923,20 +962,23 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
     Velocity 0..3
     Cambi pendenti al boundary di 16 step
 
-  Display UI:
-    Palette:
-      Verde 0x00FF00    PLAY / DCO / SUB_FILTER
-      Rosso 0xCC3300    SYNTH A / VCF / Salva (FX/DRUM)
-      Blu   0x0099FF    SYNTH B / MOD / Rev1
-      Giallo 0xFFCC33   DRUM / VCA / SUB_WOVEL
-      Viola chiaro 0xBB88FF  FX / DLY
-      Grigio 0x999999   SET UP
-    Frame: border grigio 0x888888, label sopra il bordo (y=-20,
-      bg_opa=COVER, pad_hor=6..8)
-    Tick radiali: 5 per arc, angoli 135/202.5/270/337.5/405,
-      pivot (0,15), rotazione 90+deg
-    Top-label sopra tick superiore: offset -17
-    Value-label sotto arc: offset -8
+  Display UI — Palette:
+    Verde 0x00FF00      PLAY / DCO / SUB_FILTER
+    Rosso 0xCC3300      SYNTH A / VCF / Salva
+    Blu   0x0099FF      SYNTH B / MOD / Rev1
+    Giallo 0xFFCC33     DRUM / VCA / SUB_WOVEL
+    Viola chiaro 0xBB88FF FX / DLY
+    Grigio 0x999999     SET UP
+    Arancione 0xFF8800  KIT (nuovo)
+    Rosso scuro 0xAA0000 REV (nuovo)
+
+  Frame: border grigio 0x888888, label sopra il bordo (y=-20,
+    bg_opa=COVER, pad_hor=6..8)
+
+  Tick radiali VCF: 5 per arc, angoli 135/202.5/270/337.5/405,
+    pivot (0,15), rotazione 90+deg
+
+  Dropdown: senza freccia via lv_dropdown_set_symbol(dd, NULL)
 
 
 -------------------------------------------------------------------------------
@@ -946,50 +988,68 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
   TLC5628 (DAC octal 8-bit, 3 fili DATA/CLK/LOAD):
     Parola 11 bit MSB-first [A2 A1 A0 D7..D0]
     5 canali usati: VCF1/VCF2/VCF3/Res/Sustain
-    Nota: per smoothness uscita, filtro RC (R≈1kΩ, C≈4.7nF)
-    + buffer (TL074 se alimentazione duale, MCP6004/OPA4353 se 5V
-    singola). 100nF diretto NON va bene (filtro taglia a 1.6kHz,
-    troppo lento per CV modulato).
+    Filtro RC (R≈1kΩ, C≈4.7nF) + buffer
 
-  CD4051 (mux 8 canali):
-    Seleziona resistenza A/D/R dell'ADSR hardware
-    3 pin select (A, B, C) pilotati dal SynthB
+  CD4051 (mux 8 canali): seleziona resistenza A/D/R ADSR hardware
 
-  CD4066 (4 switch analogici):
-    3 switch per ATTACK / DECAY / RELEASE
-    Pilotati da 3 GPIO del SynthB
+  CD4066 (4 switch analogici): 3 switch per ATTACK/DECAY/RELEASE
 
-  ADC GP26:
-    Feedback envelope hardware (0..1023)
+  ADC GP26: feedback envelope hardware (0..1023)
 
-  AD5242: NON usato (rimosso).
+  AD5242: NON usato (rimosso)
 
 
 -------------------------------------------------------------------------------
-15. COSE DA FARE (TODO)
+15. HARDWARE ESTERNO TEENSY (lista.h)
+-------------------------------------------------------------------------------
+
+  lista.h contiene gli array dei nomi file .raw dei campioni drum
+  per il Teensy:
+    - 9 voci: bdArr, sdArr, hhArr, ohArr, hh2Arr, clapArr,
+              perc1Arr, perc2Arr, perc3Arr
+    - Ogni voce ha N "set" disponibili (vedi 9.8)
+    - 11 kit definiti dal commento finale
+    - maxArr[9] con gli indici massimi 0-based per voce
+    - NON contiene kitArr (definito dall'utente via specifica)
+
+  Il Display usa lista.h solo per estrarre i nomi dei set
+  (copia manuale in lvglGrafKit.cpp).
+
+
+-------------------------------------------------------------------------------
+16. COSE DA FARE (TODO)
 -------------------------------------------------------------------------------
 
   CRITICHE:
   1. Test hardware Teensy rev 12 (BIN, fill, song, choke HH/OH)
   2. Verificare boot log SD: PTN:16/16 FILL:16/16 SONG:16/16
   3. Verificare cambio fill pendente e ritorno a sezione pendente
-  4. Compilare e testare Display end-to-end dopo refactoring + VCF-B
-  5. **Allineare firmware SynthB a nuovo WF 8 item** (rimosso FM3):
-     aggiornare ui2fw_wave, K_WAVEFORM, ottaveB.h se serve
-  6. **Aggiungere mappatura LWS per arc RES/EnvA/EnvV** in SynthB
+  4. Test Display end-to-end dopo refactoring + DRUM completo
+  5. Allineare firmware SynthB a nuovo WF 8 item (rimosso FM3)
+  6. Aggiungere mappatura LWS per arc RES/EnvA/EnvV in SynthB
 
-  DISPLAY:
-  7. Progettare GUI drum sequencer completa (sezione A/B/C/D,
-     fill trigger, song mode)
-  8. Progettare GUI kit editor (voice/sample names, rename)
-  9. Progettare GUI song editor (lista slot 256, rename)
-  10. Implementare text input riutilizzabile LVGL
-  11. Integrare nuovi comandi Teensy ('y' 's' 'o' 'i' 'h')
-  12. Implementare lettura/scrittura /drum/*.txt su SD Display
+  DISPLAY — immediati:
+  7. Sync array (seqArr/fillArr/songArr) Display <-> Teensy via LWS
+     (nuovo CMD: richiesta invio blob, chunk 64B, CRC)
+  8. Persistenza kit_names su SD (/drum/kit_names.txt)
+  9. Mute toggle (cmd 'M' bitmask) in DRUM/PTN
+     (6 bottoni, layout da progettare, striscia dedicata)
+  10. BPM + Swing in DRUM/PTN (cmd 'b' 'W')
+
+  DISPLAY — pagina PLAY:
+  11. Play mode Pattern/Song ('y')
+  12. Song select live ('s')
+  13. Fill trigger ('h')
+  14. Fill select live ('i')
+  15. Sezione A/B/C/D live ('o')
+  16. BPM/Swing live ('b' 'W')
+
+  DISPLAY — kit editor:
+  17. Rename sample (richiede text input LVGL + SD)
+  18. Kit editor completo (invio kit a Teensy)
 
   SCRIPTS PC:
-  13. convert_ptn.py (fatto)
-  14. gen_sample_names.py (fatto)
+  19. Aggiornare Python generator preset SynthB con nuove chiavi
 
   FEATURE NON IMPLEMENTATE:
   - DSP effetti (chiavi accettate, non applicate)
@@ -1002,33 +1062,40 @@ Ultimo aggiornamento: 2026-09-28 (Display: refactoring lvglGraf + VCF-B + DCO A/
   - Test hardware end-to-end (a -> b -> c -> B -> T)
   - Preset transfer da SD reale
   - Verifica FPU su RP2350 (pitch 440 Hz)
-  - Collisione 'Q' tra K_FM_DIV_1 e K_PRESET_SAVE (in namespace diversi)
-  - Aggiornare Python generator preset SynthB con nuove chiavi
+  - Collisione 'Q' tra K_FM_DIV_1 e K_PRESET_SAVE (namespace diversi)
+  - Warning static non usate in preset_sd.h, preset_transfer.h,
+    lvglPreset.cpp (tutti innocui)
 
 
 -------------------------------------------------------------------------------
-16. PROSSIMO STEP
+17. PROSSIMO STEP CONSIGLIATO
 -------------------------------------------------------------------------------
 
-  Se hardware Teensy montato:
-    - Caricare firmware rev 12
-    - Verificare boot log (PTN/FILL/SONG count)
-    - Test play pattern, cambio sezione, fill, song
-    - Verificare CPU/mem con 'C'
+  Priorità alta — chiudono il cerchio DRUM:
 
-  Se hardware Display pronto:
-    - Compilare dopo refactoring + nuove pagine
-    - Test VCF-B con 6 stati (FLT/UNI-SLV-FRE + WOV/POT-ENV-RND)
-    - Test DCO A/B (bottone ciclico WF/FM/AM, Edit FM)
-    - Test DRUM/SEQ (rettangolini, long-press 1s)
-    - Test FX/FV-1
+  A) Sync array Display <-> Teensy
+     - Definire CMD_DRUM_READ (Display → Teensy: richiesta seqArr)
+     - Teensy risponde con N chunk da 64B (payload: [idx][data])
+     - Display ricostruisce seqArr/fillArr/songArr
+     - Al salvataggio: Display invia i blob aggiornati al Teensy
 
-  Altrimenti:
-    A) Progettare GUI drum sequencer completa
-    B) Implementare text input riutilizzabile LVGL
-    C) Aggiornare Python generator preset SynthB
-    D) Aggiungere DSP effetti
-    E) Revisione ADSR (SynthA + SynthB)
+  B) Mute toggle in DRUM/PTN
+     - 6 bottoni toggle (bitmask 6 bit)
+     - Layout: striscia orizzontale da progettare
+     - cmd 'M' con payload [mask]
+     - Echo dal Teensy per stato
+
+  C) Pagina PLAY completa
+     - Ha spazio (attualmente meter L/R/C + timeline)
+     - Può ospitare: fill trigger, play mode, sezioni live,
+       song select, BPM/Swing live
+
+  Priorità media:
+
+  D) Persistenza kit_names su SD
+  E) BPM + Swing in DRUM/PTN
+  F) Mappatura LWS RES/EnvA/EnvV
+  G) Python generator preset SynthB
 
 ================================================================================
 FINE RIEPILOGO

@@ -9,10 +9,36 @@
 #include "lvgl_v8_port.h"
 #include "src/preset/preset_ui.h"
 
-#define TL_ACTIVE_OPA  70
-#define TL_IDLE_OPA      0
 #define ENV_POINTS     60
 
+
+// Valori provvisori (futuro: editabili + SD)
+// Ratio effettivo = fmSetSin / fmSetDiv
+// Ispirati a FM1/FM2/FM3 del firmware (ratio 3, 7, 4+11, 11, ecc.)
+// ============================================================
+// Dati FM (modificabili da FM Edit; futuro: SD)
+// ============================================================
+uint8_t fmSetSin[8][3] = {
+    {  3,  5,  7 },
+    {  7,  9, 11 },
+    {  4, 11, 13 },
+    {  2,  7, 11 },
+    {  5,  8, 13 },
+    {  3,  7, 13 },
+    {  3,  5, 11 },
+    {  1,  3,  5 }
+};
+
+uint8_t fmSetDiv[8][3] = {
+    { 1, 1, 1 },
+    { 1, 1, 1 },
+    { 1, 1, 1 },
+    { 1, 1, 1 },
+    { 1, 1, 1 },
+    { 2, 2, 2 },
+    { 1, 1, 1 },
+    { 1, 1, 1 }
+};
 const uint8_t ui2fw_wave[9] = {0, 4, 3, 2, 1, 5, 6, 7, 8};
 // Colore del bordo per categoria waveform (WF/FM/AM)
 static uint32_t cat_color(int cat) {
@@ -49,9 +75,13 @@ static lv_obj_t* home_btn_at(lv_obj_t *p, int id, int x, int y) {
     lv_obj_set_style_radius(b, 8, 0);
     lv_obj_set_style_border_width(b, 3, 0);
     lv_obj_set_style_border_color(b, lv_color_hex(0x9B59B6), 0);
-    lv_obj_t *img = lv_img_create(b);
-    lv_img_set_src(img, &home);
-    lv_obj_center(img);
+
+    lv_obj_t *lbl = lv_label_create(b);
+    lv_label_set_text(lbl, LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_32, 0);
+    lv_obj_center(lbl);
+
     lv_obj_add_event_cb(b, eb, LV_EVENT_CLICKED, (void*)(uintptr_t)id);
     return b;
 }
@@ -101,9 +131,11 @@ void slider(lv_obj_t *p, int x, int y, const char *l, int idx,
     sd[idx] = {lb, idx};
     lv_obj_add_event_cb(s, eslider, LV_EVENT_VALUE_CHANGED, &sd[idx]);
 
-    int yf = map(g.pre[idx], 0, 255, (y+242)-13, y+30);
-    lv_obj_t *a = lv_img_create(p);
-    lv_img_set_src(a, &freccina);
+       int yf = map(g.pre[idx], 0, 255, (y+242)-13, y+30);
+    lv_obj_t *a = lv_label_create(p);
+    lv_label_set_text(a, LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_color(a, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_text_font(a, &lv_font_montserrat_18, 0);
     lv_obj_set_pos(a, x-18, yf);
     arr[idx] = a;
     crs[idx] = false;
@@ -197,7 +229,7 @@ void h_slider(lv_obj_t *p, int id) {
     // ============================================================
     // SLIDER ORIZZONTALE (sotto il plotter, nessuna label SHAPE)
     // ============================================================
-    const int SL_X = PLOT_X + 5;
+    const int SL_X = PLOT_X + 40;
     const int SL_Y = PLOT_Y + PLOT_H + 5;
     const int SL_W = 212;
     const int SL_H = 54;
@@ -253,14 +285,17 @@ void h_slider(lv_obj_t *p, int id) {
     lv_obj_add_event_cb(s, ehslider, LV_EVENT_VALUE_CHANGED, d);
 
     // Freccina di target
-    uint8_t target = (id == SRC_A) ? g.pre_shape_A : g.pre_shape_B;
-    int arrow_x = SL_X + (int)((target / 100.0f) * SL_W) - 12;
+      uint8_t target = (id == SRC_A) ? g.pre_shape_A : g.pre_shape_B;
+    int arrow_x = SL_X + (int)((target / 100.0f) * SL_W) - 8;
     int arrow_y = SL_Y + SL_H + 5;
-    lv_obj_t *arrow = lv_img_create(p);
-    lv_img_set_src(arrow, &freccina_oriz);
+    lv_obj_t *arrow = lv_label_create(p);
+    lv_label_set_text(arrow, LV_SYMBOL_UP);
+    lv_obj_set_style_text_color(arrow, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_text_font(arrow, &lv_font_montserrat_18, 0);
     lv_obj_set_pos(arrow, arrow_x, arrow_y);
     if (id == SRC_A) g.shape_arrow_A = arrow;
     else             g.shape_arrow_B = arrow;
+	
 
     bool crs_flag = (id == SRC_A) ? g.shape_crs_A : g.shape_crs_B;
     if (crs_flag) {
@@ -432,47 +467,355 @@ void populate_grid(lv_obj_t *container, const char *items, int selected_idx, int
     }
 }
 
+// ============================================================
+// Plotter waveform — funzioni helper
+// ============================================================
+
+// Dente di sega ↔ triangolo (morphing via shape 0..100)
+static void plot_saw_wave(int *out, int n, int cycles, int shape) {
+    float pos = shape / 100.0f;
+    float p = constrain(1.0f - pos, 0.001f, 0.999f);
+    for (int i = 0; i < n; i++) {
+        float phase = (float)i / n * cycles;
+        float frac  = phase - floorf(phase);
+        float y = (frac <= p) ? 100.0f * frac / p
+                              : 100.0f * (1.0f - frac) / (1.0f - p);
+        out[i] = (int)y;
+    }
+}
+
+// Triangolo ↔ dente di sega (0 = tri, 100 = saw)
+static void plot_tri_wave(int *out, int n, int shape) {
+    float pos = shape / 100.0f;
+    for (int i = 0; i < n; i++) {
+        float phase = (float)i / n * 2.0f;
+        float frac  = phase - floorf(phase);
+        float tri   = (frac < 0.5f) ? (frac * 2.0f) : (2.0f - frac * 2.0f);
+        float saw   = frac;
+        float y     = tri * (1.0f - pos) + saw * pos;
+        out[i] = (int)(y * 100.0f);
+    }
+}
+
+// Square con PWM (shape 1..99 → duty)
+static void plot_sqr_wave(int *out, int n, int shape) {
+    uint8_t duty = constrain(shape, 1, 99);
+    float   d    = duty / 100.0f;
+    for (int i = 0; i < n; i++) {
+        float phase = (float)i / n * 2.0f;
+        float frac  = phase - floorf(phase);
+        out[i] = (frac < d) ? 100 : 0;
+    }
+}
+
+// Seno puro (2 cicli)
+static void plot_sine_wave(int *out, int n, int shape) {
+    (void)shape;
+    for (int i = 0; i < n; i++) {
+        float phase = (float)i / n * 2.0f;
+        float y     = sinf(phase * PI * 2.0f);
+        out[i] = (int)((y * 0.5f + 0.5f) * 100.0f);
+    }
+}
+
+// Rumore pseudocasuale deterministico (hold di 3 campioni)
+static void plot_noise_wave(int *out, int n, int shape) {
+    (void)shape;
+    uint32_t seed = 0x12345u;
+    int hold = 0;
+    int val  = 50;
+    for (int i = 0; i < n; i++) {
+        if (hold <= 0) {
+            seed = seed * 1103515245u + 12345u;
+            val  = (int)((seed >> 16) % 101);
+            hold = 3;
+        }
+        out[i] = val;
+        hold--;
+    }
+}
+
+// FM: carrier sin(φ) con modulatore sin(ratio·φ)
+//   shape → indice FM (0..maxIdx)
+//   variant 0..7 → ratio e maxIdx diversi
+static void plot_fm_wave(int *out, int n, int shape, int variant) {
+    static const float ratio_arr[8] = {
+        1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 1.5f, 2.5f, 3.5f
+    };
+    static const float maxIdx[8] = {
+        4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 5.0f, 6.0f, 7.0f
+    };
+
+    if (variant < 0) variant = 0;
+    if (variant > 7) variant = 7;
+
+    float ratio = ratio_arr[variant];
+    float index = (shape / 100.0f) * maxIdx[variant];
+
+    for (int i = 0; i < n; i++) {
+        float phase = (float)i / n * 2.0f;
+        float mod   = sinf(phase * PI * 2.0f * ratio);
+        float y     = sinf(phase * PI * 2.0f + index * mod);
+        out[i] = (int)((y * 0.5f + 0.5f) * 100.0f);
+    }
+}
+
+// AM: carrier sin(4φ) · (1 + depth·sin(fm·φ)) / (1 + depth)
+//   shape → depth (0..1)
+//   variant 0..7 → frequenza modulante
+static void plot_am_wave(int *out, int n, int shape, int variant) {
+    static const float am_freq[8] = {
+        1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f, 10.0f
+    };
+
+    if (variant < 0) variant = 0;
+    if (variant > 7) variant = 7;
+
+    float fm    = am_freq[variant];
+    float depth = shape / 100.0f;
+
+    for (int i = 0; i < n; i++) {
+        float phase   = (float)i / n * 2.0f;
+        float carrier = sinf(phase * PI * 2.0f * 4.0f);
+        float mod     = sinf(phase * PI * 2.0f * fm);
+        float y       = carrier * (1.0f + depth * mod) / (1.0f + depth);
+        out[i] = (int)((y * 0.5f + 0.5f) * 100.0f);
+    }
+}
+
+// ============================================================
+// Plotter principale — dispatch per categoria + nome
+// ============================================================
+// ============================================================
+// Plotter waveform — replica del firmware SynthB
+// ============================================================
+
+// ---- Wavetable base (replica di wavetable_setup) ----
+static void plot_gen_base(int32_t *wt, int cat, int wave_index) {
+    const float SAMPLE_LEV = 551.0f;
+    const float PIx2       = 2.0f * M_PI;
+
+    if (cat == CAT_WF) {
+        int fw = ui2fw_wave[wave_index];   // 0..8
+        switch (fw) {
+            case 0: // SAW
+                for (int i = 0; i < 256; i++)
+                    wt[i] = i * 4 - (int)SAMPLE_LEV + 1;
+                break;
+            case 1: // SINE
+                for (int i = 0; i < 256; i++)
+                    wt[i] = (int)(sinf(PIx2 * i / 256.0f) * SAMPLE_LEV);
+                break;
+            case 2: // SQR
+                for (int i = 0; i < 128; i++) {
+                    wt[i]       =  (int)SAMPLE_LEV;
+                    wt[i + 128] = -(int)SAMPLE_LEV;
+                }
+                break;
+            case 3: // TRI
+                for (int i = 0; i < 128; i++) {
+                    wt[i]       = i * 8 - (int)SAMPLE_LEV;
+                    wt[i + 128] = (int)SAMPLE_LEV - i * 8;
+                }
+                break;
+            case 4: // OCT-SAW
+                for (int i = 0; i < 128; i++) {
+                    wt[i]       = i * 4 - ((int)SAMPLE_LEV + 1) + i * 2;
+                    wt[i + 128] = i * 2 - (((int)SAMPLE_LEV + 1) / 2) + i * 4;
+                }
+                break;
+            case 5: // FM1
+                for (int i = 0; i < 256; i++)
+                    wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                sinf(PIx2*3.0f*i/256.0f)) * SAMPLE_LEV);
+                break;
+            case 6: // FM2
+                for (int i = 0; i < 256; i++)
+                    wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                sinf(PIx2*7.0f*i/256.0f)) * SAMPLE_LEV);
+                break;
+            case 7: // FM3
+                for (int i = 0; i < 256; i++)
+                    wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                sinf(PIx2*4.0f*i/256.0f +
+                                sinf(PIx2*11.0f*i/256.0f))) * SAMPLE_LEV);
+                break;
+            case 8: { // NOISE (deterministico)
+                uint32_t seed = 0x12345u;
+                for (int i = 0; i < 256; i++) {
+                    seed = seed * 1103515245u + 12345u;
+                    wt[i] = (int)((seed >> 16) % 510) + 511 - (int)SAMPLE_LEV;
+                }
+                break;
+            }
+            default:
+                for (int i = 0; i < 256; i++) wt[i] = 0;
+                break;
+        }
+    }
+    else if (cat == CAT_AM) {
+        int fw = wave_index - 17;   // 0..7
+        switch (fw) {
+            case 0: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f) * SAMPLE_LEV); break;
+            case 1: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*3.0f*i/256.0f)) * SAMPLE_LEV); break;
+            case 2: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*5.0f*i/256.0f)) * SAMPLE_LEV); break;
+            case 3: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*4.0f*i/256.0f +
+                                    sinf(PIx2*11.0f*i/256.0f))) * SAMPLE_LEV); break;
+            case 4: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*1.28f*i/256.0f)) * SAMPLE_LEV); break;
+            case 5: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*3.19f*i/256.0f)) * SAMPLE_LEV); break;
+            case 6: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*2.3f*i/256.0f +
+                                    sinf(PIx2*7.3f*i/256.0f))) * SAMPLE_LEV); break;
+            case 7: for (int i = 0; i < 256; i++)
+                        wt[i] = (int)(sinf(PIx2*i/256.0f +
+                                    sinf(PIx2*6.3f*i/256.0f +
+                                    sinf(PIx2*11.3f*i/256.0f))) * SAMPLE_LEV); break;
+            default: for (int i = 0; i < 256; i++) wt[i] = 0; break;
+        }
+    }
+    else {
+        // FM: base zero (viene riempita dal loop FM)
+        for (int i = 0; i < 256; i++) wt[i] = 0;
+    }
+}
+
+// ---- Wavefold (replica del loop1 case mode=0) ----
+static void plot_apply_wavefold(const int32_t *in, int32_t *out,
+                                 int fw_wave, float mod) {
+    if (fw_wave == 2) {
+        // SQR: PWM (mod = offset 0..250)
+        int modInt = (int)mod;
+        if (modInt < 0)   modInt = 0;
+        if (modInt > 250) modInt = 250;
+        for (int i = 0; i < 128 + modInt; i++) out[i] =  511;
+        for (int i = 128 + modInt; i < 256; i++) out[i] = -511;
+        return;
+    }
+    // Wavefold generico
+    for (int i = 0; i < 256; i++) {
+        float m = (float)in[i] * mod;
+        int32_t v;
+        if      (m >  511 && m <  1535) v =  1024 - (int)m;
+        else if (m < -512 && m > -1536) v = -1023 - (int)m;
+        else if (m < -1535)             v =  2048 + (int)m;
+        else if (m >  1534)             v =  (int)m - 2047;
+        else                            v =  (int)m;
+        out[i] = v;
+    }
+}
+
+// ---- FM (replica del loop1 case mode=1) ----
+static void plot_apply_fm(int32_t *out, int mm, int fw_case, int fmSel) {
+    const float PIx2 = 2.0f * M_PI;
+    float mm_f = (float)mm;
+
+    // Ratio float (evita divisione intera)
+    float r0 = (float)fmSetSin[fmSel][0] / (float)fmSetDiv[fmSel][0];
+    float r1 = (float)fmSetSin[fmSel][1] / (float)fmSetDiv[fmSel][1];
+    float r2 = (float)fmSetSin[fmSel][2] / (float)fmSetDiv[fmSel][2];
+
+    for (int i = 0; i < 256; i++) {
+        float v = 0.0f;
+        switch (fw_case) {
+            case 0: case 2: case 3: case 6: case 7:
+                v = sinf(PIx2*i/256
+                    + mm_f/128 * sinf(PIx2*r0*i/256
+                    + mm_f/128 * sinf(PIx2*r1*i/256
+                    + mm_f/128 * sinf(PIx2*r2*i/256)))) * 511;
+                break;
+            case 1: case 4: case 5:
+                v = (sinf(PIx2*i/256 + mm_f/128*sinf(PIx2*r0*i/256))
+                   + sinf(PIx2*r1*i/256
+                   + mm_f/128*sinf(PIx2*r2*i/256))) * 250;
+                break;
+            default:
+                v = sinf(PIx2*i/256) * 511;
+                break;
+        }
+        out[i] = (int)v;
+    }
+}
+
+// ---- Plotter principale (dispatch per categoria) ----
 void update_wave_plot(lv_obj_t *chart, lv_chart_series_t *serie,
                       uint8_t shape_val, int wave_index) {
-    if (wave_index == WF_SAW_INDEX || wave_index == WF_S8W_INDEX)
-        lv_chart_set_series_color(chart, serie, lv_color_hex(0xFFFF00));
-    else if (wave_index == WF_SQU_INDEX)
-        lv_chart_set_series_color(chart, serie, lv_color_hex(0xFF0000));
-    else if (wave_index == WF_SIN_INDEX)
-        lv_chart_set_series_color(chart, serie, lv_color_hex(0x00AAFF));
-    else
-        lv_chart_set_series_color(chart, serie, lv_color_hex(0xFF8800));
+    if (!chart || !serie) return;
+    if (wave_index < 0 || wave_index >= NUM_WAVES) return;
 
-    if (wave_index != WF_SAW_INDEX && wave_index != WF_S8W_INDEX && wave_index != WF_SQU_INDEX) {
-        for (int i = 0; i < WAVE_POINTS; i++) lv_chart_set_next_value(chart, serie, 0);
-        lv_chart_refresh(chart);
-        return;
+    int cat = WAVE_DEFS[wave_index].category;
+
+    // Colore serie in base alla categoria
+    uint32_t col = 0xFFFF00;                    // WF → giallo
+    if      (cat == CAT_FM) col = 0xFF8800;     // FM → arancio
+    else if (cat == CAT_AM) col = 0xAA44FF;     // AM → viola
+    lv_chart_set_series_color(chart, serie, lv_color_hex(col));
+
+    static int32_t wt_base[256];
+    static int32_t wt_mod [256];
+
+    // 1. Wavetable base
+    plot_gen_base(wt_base, cat, wave_index);
+
+    // 2. tmpmod equivalente: shape 0..100 → 0..1023
+    int tmpmod = (shape_val * 1023) / 100;
+
+    // 3. Elaborazione per categoria
+    if (cat == CAT_WF) {
+        int fw_wave = ui2fw_wave[wave_index];
+        float mod;
+        if (fw_wave != 2)  mod = (float)tmpmod * 0.0036f + 0.90f;
+        else               mod = (float)(tmpmod >> 3);
+        plot_apply_wavefold(wt_base, wt_mod, fw_wave, mod);
+    }
+     
+	     else if (cat == CAT_FM) {
+        int fmSel   = wave_index - 9;      // 0..7 → sceglie il set FM
+        int fw_case = 0;                    // topologia: 3-op FM (default)
+        // Indice FM: il firmware usa 0..1 (mm/128 con mm≤127).
+        // Moltiplichiamo per FM_PLOT_SCALE per rendere visibile
+        // la distorsione nel plotter (didattico, non fedele al bit).
+        #define FM_PLOT_SCALE 12
+        int mm = (tmpmod >> 3) * FM_PLOT_SCALE;
+        plot_apply_fm(wt_mod, mm, fw_case, fmSel);
+    }
+	
+	else if (cat == CAT_AM) {
+        // Nel firmware il mod controlla la velocità della modulazione.
+        // Qui mostriamo l'ampiezza istantanea in funzione di shape.
+        int am_k = (int)((shape_val * 63) / 100);   // 0..63
+        float sinVal = sinf(2.0f * M_PI * am_k / 63.0f);
+        for (int i = 0; i < 256; i++)
+            wt_mod[i] = (int)(wt_base[i] * sinVal);
+    }
+    else {
+        // fallback
+        for (int i = 0; i < 256; i++) wt_mod[i] = wt_base[i];
     }
 
-    if (wave_index == WF_SQU_INDEX) {
-        uint8_t duty = constrain(shape_val, 1, 99);
-        float duty_float = duty / 100.0f;
-        for (int i = 0; i < WAVE_POINTS; i++) {
-            float frac = (float)i / WAVE_POINTS * 2.0f - floorf((float)i / WAVE_POINTS * 2.0f);
-            int y = (frac < duty_float) ? 100 : 0;
-            lv_chart_set_next_value(chart, serie, y);
-        }
-        lv_chart_refresh(chart);
-        return;
+    // 4. Disegna — mappa 256 punti in WAVE_POINTS
+    //    Range wavefold: circa -1024..1024 → normalizza in 0..100
+    for (int i = 0; i < WAVE_POINTS; i++) {
+        int src_i = (i * 256) / WAVE_POINTS;
+        int32_t v = wt_mod[src_i];
+        // Normalizza da -550..550 a 0..100 (clamp per wavefold estremi)
+        int y = (int)(((int64_t)v + 550) * 100 / 1100);
+        if (y < 0)   y = 0;
+        if (y > 100) y = 100;
+        lv_chart_set_next_value(chart, serie, y);
     }
-
-    if (wave_index == WF_SAW_INDEX || wave_index == WF_S8W_INDEX) {
-        int cycles = (wave_index == WF_SAW_INDEX) ? 2 : 4;
-        float pos = shape_val / 100.0f;
-        float p = constrain(1.0f - pos, 0.001f, 0.999f);
-        for (int i = 0; i < WAVE_POINTS; i++) {
-            float phase = (float)i / WAVE_POINTS * cycles;
-            float frac = phase - floorf(phase);
-            float y = (frac <= p) ? 100.0f * frac / p : 100.0f * (1.0f - frac) / (1.0f - p);
-            lv_chart_set_next_value(chart, serie, (int)y);
-        }
-        lv_chart_refresh(chart);
-    }
+    lv_chart_refresh(chart);
 }
 
 void update_plotter_by_wave(int synth_id) {
@@ -656,69 +999,55 @@ static void format_time(uint32_t ms, char *buf, size_t buflen) {
     snprintf(buf, buflen, "%02u:%02u", (unsigned)m, (unsigned)s);
 }
 
-void tl_set_buttons(int active) {
-    if (timeline_btn_init && lv_obj_is_valid(timeline_btn_init))
-        lv_obj_set_style_img_recolor_opa(timeline_btn_init,
-            (active == 0) ? TL_ACTIVE_OPA : TL_IDLE_OPA, 0);
-    if (timeline_btn_stop && lv_obj_is_valid(timeline_btn_stop))
-        lv_obj_set_style_img_recolor_opa(timeline_btn_stop,
-            (active == 1) ? TL_ACTIVE_OPA : TL_IDLE_OPA, 0);
-    if (timeline_btn_play && lv_obj_is_valid(timeline_btn_play))
-        lv_obj_set_style_img_recolor_opa(timeline_btn_play,
-            (active == 2) ? TL_ACTIVE_OPA : TL_IDLE_OPA, 0);
-}
-
+// ============================================================
+// Timeline controls — 2 bottoni: Rewind + Play/Stop toggle
+// ============================================================
 static void tl_init_cb(lv_event_t *e) {
     (void)e;
-    if (timeline_playing) return;
+    // Rewind: reset del tempo a 0 (funziona anche durante il play)
     timeline_demo_ms = 0;
     update_timeline(0, 60000);
-    tl_set_buttons(0);
-}
-
-static void tl_stop_cb(lv_event_t *e) {
-    (void)e;
-    timeline_playing = false;
-    tl_set_buttons(1);
 }
 
 static void tl_play_cb(lv_event_t *e) {
     (void)e;
-    timeline_playing = true;
-    tl_set_buttons(2);
+    timeline_playing = !timeline_playing;
+
+    lv_obj_t *lbl = nullptr;
+    if (timeline_btn_play && lv_obj_is_valid(timeline_btn_play))
+        lbl = lv_obj_get_child(timeline_btn_play, 0);
+
+    if (timeline_playing) {
+        if (lbl) lv_label_set_text(lbl, LV_SYMBOL_STOP);
+        if (timeline_btn_play && lv_obj_is_valid(timeline_btn_play))
+            lv_obj_set_style_border_color(timeline_btn_play,
+                                          lv_color_hex(0x888888), 0);
+    } else {
+        if (lbl) lv_label_set_text(lbl, LV_SYMBOL_PLAY);
+        if (timeline_btn_play && lv_obj_is_valid(timeline_btn_play))
+            lv_obj_set_style_border_color(timeline_btn_play,
+                                          lv_color_hex(0x00FF00), 0);
+    }
 }
 
 lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y) {
     const int btn_w = 100;
     const int btn_h = 80;
-    const int gap   = 5;
+    const int gap   = 10;
 
-    timeline_btn_init = lv_img_create(parent);
-    lv_img_set_src(timeline_btn_init, &img_bott_init);
-    lv_obj_set_pos(timeline_btn_init, x, y);
-    lv_obj_set_size(timeline_btn_init, btn_w, btn_h);
-    lv_obj_add_flag(timeline_btn_init, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_img_recolor(timeline_btn_init, lv_color_hex(0x00AAFF), 0);
-    lv_obj_set_style_img_recolor_opa(timeline_btn_init, LV_OPA_TRANSP, 0);
-    lv_obj_add_event_cb(timeline_btn_init, tl_init_cb, LV_EVENT_CLICKED, NULL);
+    // ---- Rewind to start (⏮) ----
+    timeline_btn_init = mkbtn(parent, x, y, btn_w, btn_h,
+                              0x00AAFF,
+                              LV_SYMBOL_PREV,
+                              &lv_font_montserrat_32,
+                              tl_init_cb, 0, 8, 2);
 
-    timeline_btn_stop = lv_img_create(parent);
-    lv_img_set_src(timeline_btn_stop, &img_bott_stop);
-    lv_obj_set_pos(timeline_btn_stop, x + btn_w + gap, y);
-    lv_obj_set_size(timeline_btn_stop, btn_w, btn_h);
-    lv_obj_add_flag(timeline_btn_stop, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_img_recolor(timeline_btn_stop, lv_color_hex(0xFFFF00), 0);
-    lv_obj_set_style_img_recolor_opa(timeline_btn_stop, LV_OPA_TRANSP, 0);
-    lv_obj_add_event_cb(timeline_btn_stop, tl_stop_cb, LV_EVENT_CLICKED, NULL);
-
-    timeline_btn_play = lv_img_create(parent);
-    lv_img_set_src(timeline_btn_play, &img_bott_play);
-    lv_obj_set_pos(timeline_btn_play, x + 2*(btn_w + gap), y);
-    lv_obj_set_size(timeline_btn_play, btn_w, btn_h);
-    lv_obj_add_flag(timeline_btn_play, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_img_recolor(timeline_btn_play, lv_color_hex(0x00FF00), 0);
-    lv_obj_set_style_img_recolor_opa(timeline_btn_play, LV_OPA_TRANSP, 0);
-    lv_obj_add_event_cb(timeline_btn_play, tl_play_cb, LV_EVENT_CLICKED, NULL);
+    // ---- Play/Stop toggle (▶ / ■) ----
+    timeline_btn_play = mkbtn(parent, x + btn_w + gap, y, btn_w, btn_h,
+                              0x00FF00,
+                              LV_SYMBOL_PLAY,
+                              &lv_font_montserrat_32,
+                              tl_play_cb, 0, 8, 2);
 
     return timeline_btn_init;
 }
@@ -840,6 +1169,15 @@ void submenu(lv_obj_t *p) {
     for (int i = 0; i < 5; i++) {
         snprintf(label, sizeof(label), "%s%s", names[i], sfx);
         btn(p, label, 135 + i * 130, 360, 115, 90, cols[i], 10 + i);
+    }
+	  // ---- CHORUS (Synth A) / PHASER (Synth B) sopra DLY ----
+    bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
+    if (isA) {
+        btn(p, "CHORUS", 655, 260, 115, 90,
+            lv_color_hex(0x006600), 35);
+    } else {
+        btn(p, "PHASER", 655, 260, 115, 90,
+            lv_color_hex(0xFF6600), 36);
     }
 }
 
@@ -1043,7 +1381,7 @@ void reset_arrows() {
             g.arc_arrow[i] = NULL;
         }
     }
-
+extern void chorus_offset_reset_arrow();   
     log_add("Freccine ripristinate", lv_color_hex(0x66AAFF));
     toast_show("Freccine ripristinate!", lv_color_hex(0x66AAFF), TOAST_DUR);
 }
@@ -1228,13 +1566,15 @@ lv_obj_t* create_keyboard(lv_obj_t *parent, int x, int y, int w, int h) {
     return cont;
 }
 
+
+
 void update_keyboard_colors() {
     lv_color_t w_yellow = lv_color_hex(0xFFFFAA);
     lv_color_t w_blue   = lv_color_hex(0xAADDFF);
     lv_color_t b_yellow = lv_color_hex(0x886600);
     lv_color_t b_blue   = lv_color_hex(0x224466);
-
-    for (int i = 0; i < KB_WHITE_KEYS; i++) {
+	
+	   for (int i = 0; i < KB_WHITE_KEYS; i++) {
         if (!kb_white[i] || !lv_obj_is_valid(kb_white[i])) continue;
         lv_color_t c = (kb_white_note[i] <= midi_split) ? w_yellow : w_blue;
         lv_obj_set_style_bg_color(kb_white[i], c, 0);
@@ -1247,3 +1587,196 @@ void update_keyboard_colors() {
         lv_obj_set_style_bg_opa(kb_black[i], LV_OPA_COVER, 0);
     }
 }
+
+// ============================================================
+// 14) HELPER WIDGET — bottone e dropdown standard
+// ============================================================
+
+lv_obj_t* mkbtn(lv_obj_t *parent,
+                int x, int y, int w, int h,
+                uint32_t border_color,
+                const char *text,
+                const lv_font_t *font,
+                lv_event_cb_t cb,
+                intptr_t user_data,
+                int radius,
+                int border_width)
+{
+    lv_obj_t *b = lv_btn_create(parent);
+    lv_obj_set_size(b, w, h);
+    lv_obj_set_pos(b, x, y);
+    lv_obj_set_style_bg_color(b, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(b, radius, 0);
+    lv_obj_set_style_border_width(b, border_width, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(border_color), 0);
+
+    lv_obj_t *l = lv_label_create(b);
+    lv_label_set_text(l, text);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_center(l);
+
+    if (cb) {
+        lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED,
+                            (void*)user_data);
+    }
+    return b;
+}
+
+lv_obj_t* styled_dropdown(lv_obj_t *parent,
+                          int x, int y, int w, int h,
+                          uint32_t border_color,
+                          const lv_font_t *font,
+                          const char *options)
+{
+    lv_obj_t *dd = lv_dropdown_create(parent);
+    lv_obj_set_size(dd, w, h);
+    lv_obj_set_pos(dd, x, y);
+    lv_obj_set_style_bg_color(dd, lv_color_hex(0x1A1A2E), 0);
+    lv_obj_set_style_bg_color(dd, lv_color_hex(0x0F3460), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(dd, 2, 0);
+    lv_obj_set_style_border_color(dd, lv_color_hex(border_color), 0);
+    lv_obj_set_style_radius(dd, 6, 0);
+    lv_obj_set_style_text_color(dd, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dd, font, 0);
+    lv_obj_set_style_pad_left(dd, 6, 0);
+    lv_obj_set_style_pad_right(dd, 4, 0);
+
+    lv_dropdown_set_options(dd, options);
+    lv_dropdown_set_symbol(dd, NULL);
+
+    lv_obj_t *list = lv_dropdown_get_list(dd);
+    if (list) {
+        lv_obj_set_style_text_font(list, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_bg_color(list, lv_color_hex(0x1A1A2E), 0);
+        lv_obj_set_style_text_color(list, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_max_height(list, 380, 0);
+    }
+    return dd;
+}
+
+// ============================================================
+// 15) RENAME MODAL — finestra unica riusabile
+// ============================================================
+static lv_obj_t    *g_rename_win  = nullptr;
+static lv_obj_t    *g_rename_ta   = nullptr;
+static RenameApplyCb g_rename_cb  = nullptr;
+static void        *g_rename_ud   = nullptr;
+
+static void rename_modal_confirm_cb(lv_event_t *e) {
+    (void)e;
+    if (g_rename_ta && lv_obj_is_valid(g_rename_ta) && g_rename_cb) {
+        const char *name = lv_textarea_get_text(g_rename_ta);
+        if (name && strlen(name) > 0) {
+            g_rename_cb(name, g_rename_ud);
+        }
+    }
+    close_rename_modal();
+}
+
+static void rename_modal_cancel_cb(lv_event_t *e) {
+    (void)e;
+    close_rename_modal();
+}
+
+void close_rename_modal() {
+    if (g_rename_win) {
+        lv_obj_del(g_rename_win);
+        g_rename_win = nullptr;
+        g_rename_ta  = nullptr;
+        g_rename_cb  = nullptr;
+        g_rename_ud  = nullptr;
+    }
+}
+
+bool rename_modal_is_open() {
+    return g_rename_win != nullptr;
+}
+
+void open_rename_modal(const char *title,
+                       const char *initial_text,
+                       int max_len,
+                       uint32_t border_color,
+                       RenameApplyCb on_apply,
+                       void *user_data)
+{
+    if (g_rename_win) return;   // già aperta
+
+    g_rename_cb = on_apply;
+    g_rename_ud = user_data;
+
+    g_rename_win = lv_win_create(lv_scr_act(), 0);
+    lv_obj_set_size(g_rename_win, 580, 360);
+    lv_obj_set_pos(g_rename_win, 110, 15);
+    lv_obj_set_style_bg_color(g_rename_win, lv_color_hex(0x111111), 0);
+    lv_obj_set_style_border_color(g_rename_win, lv_color_hex(border_color), 0);
+    lv_obj_set_style_border_width(g_rename_win, 2, 0);
+    lv_obj_set_style_radius(g_rename_win, 8, 0);
+
+    lv_obj_t *client = lv_win_get_content(g_rename_win);
+    lv_obj_set_style_pad_all(client, 10, 0);
+    lv_obj_set_style_bg_color(client, lv_color_hex(0x000000), 0);
+    lv_obj_set_flex_flow(client, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(client, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(client, 10, 0);
+
+    if (title) {
+        lv_obj_t *lbl = lv_label_create(client);
+        lv_label_set_text(lbl, title);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
+    }
+
+    g_rename_ta = lv_textarea_create(client);
+    lv_obj_set_size(g_rename_ta, 460, 45);
+    lv_obj_set_style_bg_color(g_rename_ta, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_text_color(g_rename_ta, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_width(g_rename_ta, 1, 0);
+    lv_obj_set_style_border_color(g_rename_ta, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(g_rename_ta, &lv_font_montserrat_18, 0);
+    lv_textarea_set_text(g_rename_ta, initial_text ? initial_text : "");
+    lv_textarea_set_max_length(g_rename_ta, max_len);
+    lv_textarea_set_one_line(g_rename_ta, true);
+
+    lv_obj_t *kb = lv_keyboard_create(client);
+    lv_obj_set_size(kb, 550, 200);
+    lv_obj_set_style_text_font(kb, &lv_font_montserrat_18, 0);
+    lv_keyboard_set_textarea(kb, g_rename_ta);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(0x222222), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(kb, lv_color_hex(0x444444), LV_STATE_PRESSED);
+    lv_obj_set_style_text_color(kb, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+
+    lv_obj_t *btn_cont = lv_obj_create(client);
+    lv_obj_set_size(btn_cont, 460, 50);
+    lv_obj_set_style_bg_opa(btn_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(btn_cont, 0, 0);
+    lv_obj_clear_flag(btn_cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(btn_cont, 20, 0);
+
+    lv_obj_t *ok = lv_btn_create(btn_cont);
+    lv_obj_set_size(ok, 120, 40);
+    lv_obj_set_style_bg_color(ok, lv_color_hex(0x1A6B4A), 0);
+    lv_obj_t *ok_l = lv_label_create(ok);
+    lv_label_set_text(ok_l, "OK");
+    lv_obj_set_style_text_color(ok_l, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(ok_l);
+    lv_obj_add_event_cb(ok, rename_modal_confirm_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *cancel = lv_btn_create(btn_cont);
+    lv_obj_set_size(cancel, 120, 40);
+    lv_obj_set_style_bg_color(cancel, lv_color_hex(0x6B1A1A), 0);
+    lv_obj_t *cn_l = lv_label_create(cancel);
+    lv_label_set_text(cn_l, "Annulla");
+    lv_obj_set_style_text_color(cn_l, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(cn_l);
+    lv_obj_add_event_cb(cancel, rename_modal_cancel_cb, LV_EVENT_CLICKED, NULL);
+}	
+
+ 

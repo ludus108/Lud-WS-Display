@@ -49,7 +49,7 @@ lv_obj_t* create_pot_container(lv_obj_t *parent, int x, int y);
 // ========================== TIMELINE ==========================
 lv_obj_t* create_timeline(lv_obj_t *parent, int x, int y, int w, int h);
 lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y);
-void      tl_set_buttons(int active);
+//void      tl_set_buttons(int active);
 
 // ========================== ENVELOPE PLOTTER ==========================
 lv_obj_t* create_env_plot(lv_obj_t *parent, int x, int y, int w, int h, bool isA);
@@ -82,5 +82,55 @@ void update_all_targets();
 // ========================== SD ==========================
 void init_sd();
 void init_sd_btn_click(lv_event_t *e);
+
+// ========================== HELPER WIDGET (Core) ==========================
+// mkbtn: bottone standard con label centrata
+//   - bg 0x1A1A2E / pressed 0x0F3460
+//   - bordo spesso "border_width" del colore "border_color"
+//   - label bianca al centro, font "font"
+//   - callback "cb" con user_data
+// Ritorna il bottone (per personalizzazioni post-creazione).
+lv_obj_t* mkbtn(lv_obj_t *parent,
+                int x, int y, int w, int h,
+                uint32_t border_color,
+                const char *text,
+                const lv_font_t *font,
+                lv_event_cb_t cb,
+                intptr_t user_data,
+                int radius = 8,
+                int border_width = 3);
+
+// styled_dropdown: dropdown standard con stile coerente
+//   - bg 0x1A1A2E / pressed 0x0F3460
+//   - bordo 2px "border_color", radius 6
+//   - lista con font montserrat_16, max_height 380
+//   - niente freccia (lv_dropdown_set_symbol(NULL))
+// Ritorna il dropdown.
+lv_obj_t* styled_dropdown(lv_obj_t *parent,
+                          int x, int y, int w, int h,
+                          uint32_t border_color,
+                          const lv_font_t *font,
+                          const char *options);
+
+// ========================== RENAME MODAL (Core) ==========================
+// Callback applicata col nuovo nome quando l'utente conferma.
+typedef void (*RenameApplyCb)(const char *new_name, void *user_data);
+
+// Apre una finestra modale con: textarea precompilata + tastiera + OK/Annulla.
+// Chiude automaticamente alla conferma (chiama on_apply) o all'annulla.
+// "max_len" include il terminatore (passa LEN-1 per usare tutta la stringa).
+// "user_data" viene ripassato a on_apply.
+void open_rename_modal(const char *title,
+                       const char *initial_text,
+                       int max_len,
+                       uint32_t border_color,
+                       RenameApplyCb on_apply,
+                       void *user_data);
+
+// Chiude la modale se aperta (no-op altrimenti).
+void close_rename_modal();
+
+// True se la modale è attualmente aperta.
+bool rename_modal_is_open();
 
 #endif
