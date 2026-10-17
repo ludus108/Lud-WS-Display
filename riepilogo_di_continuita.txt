@@ -1,0 +1,675 @@
+================================================================================
+PROGETTO LUD-WS — RIEPILOGO DI CONTINUITA'
+================================================================================
+Documento autocontenuto per riprendere il lavoro in una nuova chat.
+Incolla questo file come primo messaggio per far capire lo stato del progetto.
+
+Ultimo aggiornamento: 2026-09-21
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. ARCHITETTURA GENERALE
+--------------------------------------------------------------------------------
+
+Topologia a stella con un nodo in cascata per il SynthA:
+
+  Display (ESP32-S3)
+     |  Serial1 @ 1 Mbps
+     v
+  Router (Pico 2 RP2350)
+     |
+     +-- Serial1 (UART0, GP0/GP1) @ 1 Mbps ---> Teensy 4.1 [T]
+     |
+     +-- SerialSynthA (SerialPIO GP2/GP3) @ 115200 ---> SynthA_M [a]
+     |                                                    |
+     |                                                    | Serial1 @ 1 Mbps
+     |                                                    v
+     |                                                  SynthA_V_A [b] (SynthA_V_A corrisponde al repo Lud-WS-SynthA_V)
+     |                                                    |
+     |                                                    | Serial2 @ 1 Mbps
+     |                                                    v
+     |                                                  SynthA_V_B [c] (SynthA_V_B corrisponde al repo Lud-WS-SynthA_V2)
+     |
+     +-- SerialSynthB (SerialPIO GP8/GP9) @ 115200 ---> SynthB [B] (legacy)
+     +-- SerialCtrl   (SerialPIO GP6/GP7)  @ 115200 ---> Ctrl [C] (legacy)
+     +-- SerialMod    (SerialPIO GP10/GP11) @ 115200 --> Mod [M] (legacy)
+     +-- SerialPower  (SerialPIO GP14/GP15) @ 115200 --> Power [P] (legacy)
+     +-- SerialMidi   (SerialPIO GP12/GP13) @ 31250 ---> MIDI IN hardware
+
+Porte fisiche del Display:
+  - Serial  (USB) 115200 debug
+  - Serial1 (UART) pin 18/17 verso Router, 1 Mbps (da aggiornare: era 115200)
+
+
+--------------------------------------------------------------------------------
+2. BUS LWS v1.1 — PROTOCOLLO
+--------------------------------------------------------------------------------
+
+Frame:
+  [SENDER][SEQ][CMD][LEN][PAYLOAD...][CRC8][&][!]
+
+  - SENDER   : 1 byte, ID del nodo mittente
+  - SEQ      : 1 byte, sequence number (0..255)
+  - CMD      : 1 byte, codice comando
+  - LEN      : 1 byte, lunghezza payload (0..255)
+  - PAYLOAD  : LEN byte
+  - CRC8     : CRC-8/ATM (poly 0x07, init 0x00) su SENDER..PAYLOAD
+  - '&' '!'  : terminatori fissi
+
+Vincolo: '&' (0x26) e '!' (0x21) non devono comparire nel payload.
+
+Baud rate:
+  - UART hardware: 1 Mbps
+  - SerialPIO: 115200
+  - MIDI hardware: 31250
+
+
+--------------------------------------------------------------------------------
+3. CMD CODES (serial_protocol.h condiviso)
+--------------------------------------------------------------------------------
+
+CMD base:
+  CMD_PING          'p'   [target]
+  CMD_PONG          'P'   (vuoto)
+  CMD_PARAM         'S'   [target][key][value]
+  CMD_PARAM_REL     'R'   [target][key][value] + ACK
+  CMD_PARAM_ACK     'A'   [acked_seq][acked_cmd]
+  CMD_ERROR         'E'   [target][msg...]
+  CMD_TIMELINE      'B'   [cur_ms i32][tot_ms i32]
+  CMD_MIDI_CC       'c'   [cc][value]
+  CMD_MIDI_NOTE     'n'   [onoff][pitch][vel]
+  CMD_MIDI_BEND     'b'   [bend i32]
+  CMD_DRUM_PATTERN  'W'   [ptn_num][name...]
+
+CMD estesi SynthA (con voice/target):
+  CMD_PARAM_VOCE    'V'   [target][voice][key][value]
+  CMD_PARAM_I32     'I'   [target][key][i32_le]
+  CMD_PARAM_I32_V   'J'   [target][voice][key][i32_le]
+  CMD_MIDI_NOTE_V   'N'   [target][voice][onoff][pitch][vel]
+  CMD_MIDI_BEND_V   'M'   [target][voice][bend i32_le]
+  CMD_MIDI_CC_V     'K'   [target][voice][cc][value]
+
+CMD preset transfer:
+  CMD_PRESET_BEGIN       'b'  [target][voice][id][len_lo][len_hi]
+  CMD_PRESET_CHUNK       'h'  [target][voice][off_lo][off_hi][data...]
+  CMD_PRESET_END         'e'  [target][voice][crc8]
+  CMD_PRESET_ACK         'a'  [target][voice][status]
+  CMD_PRESET_READ        'r'  [target][voice][id]
+  CMD_PRESET_DUMP_BEGIN  'K'  [voice][len_lo][len_hi]      <-- COLLISIONE
+  CMD_PRESET_DUMP_CHUNK  'L'  [voice][off_lo][off_hi][data]
+  CMD_PRESET_DUMP_END    'O'  [voice][crc8]
+
+  ATTENZIONE: 'K' e' usato sia da CMD_MIDI_CC_V che da CMD_PRESET_DUMP_BEGIN.
+  Da rinominare uno dei due (es. CMD_PRESET_DUMP_BEGIN = 'Q').
+
+Status ACK preset:
+  0 = OK
+  1 = CRC_FAIL
+  2 = LEN_FAIL
+  3 = VER_FAIL
+  4 = BUSY
+
+
+--------------------------------------------------------------------------------
+4. MCU ID
+--------------------------------------------------------------------------------
+
+  'D'  Display        ESP32-S3
+  'R'  Router         Pico 2 RP2350
+  'a'  SynthA_M       master, 1 voce locale (voce globale 0)
+  'b'  SynthA_V_A     slave, 2 voci locali (voci globali 1, 2)
+  'c'  SynthA_V_B     slave, 2 voci locali (voci globali 3, 4)
+  'B'  SynthB         parafonico 6 slot
+  'T'  Teensy         drum sampler + sequencer
+  'C'  Ctrl           legacy
+  'M'  Mod            legacy
+  'P'  Power          legacy
+
+
+--------------------------------------------------------------------------------
+5. LUD-WS-ROUTER (Pico 2) — v0.0.5 — COMPLETO
+--------------------------------------------------------------------------------
+
+File: Lud-WS-Router.ino
+
+UART mapping:
+  Serial1 (UART0)   GP0/GP1   @ 1 Mbps    -> Teensy
+  Serial2 (UART1)   GP4/GP5   @ 1 Mbps    -> Display
+  SerialSynthA      GP2/GP3   @ 115200    -> SynthA catena
+  SerialSynthB      GP8/GP9   @ 115200    -> SynthB legacy
+  SerialCtrl        GP6/GP7   @ 115200    -> Ctrl legacy
+  SerialMod         GP10/GP11 @ 115200    -> Mod legacy
+  SerialPower       GP14/GP15 @ 115200    -> Power legacy
+  SerialMidi        GP12/GP13 @ 31250     -> MIDI IN
+
+Nodi LWS nativi: Teensy, SynthA (a, b, c)
+Nodi legacy: SynthB, Ctrl, Mod, Power
+
+Funzionalita':
+  - Bridge Display <-> Nodi (forward per target)
+  - MIDI hardware -> CMD_MIDI_*_V verso SynthA + telemetria al Display
+  - Forwarding CMD preset
+  - Discovery (PING/PONG)
+  - Heartbeat 1 Hz verso Display
+
+Funzioni principali:
+  - isLwsNode(id)             : true per T, a, b, c
+  - portForNode(id)           : ritorna Stream* per target
+  - targetForVoice(voice)     : 0->a, 1/2->b, 3/4->c
+  - forwardPingToNode(target) : PING LWS o legacy
+  - forwardParamToNode(f)     : forward CMD_PARAM, CMD_PARAM_VOCE, ecc.
+  - forwardMidiVToSynthA(f)   : forward CMD_MIDI_*_V
+  - pollNodePorts()           : bridge nodi LWS -> Display
+  - handleNodePong()          : legacy PONG -> LWS
+
+
+--------------------------------------------------------------------------------
+6. LUD-WS-TEENSY (Teensy 4.1) — rev 9 — COMPLETO
+--------------------------------------------------------------------------------
+
+File: Lud-WS-Teensy.ino + lista.h + mem.h + serial_protocol.h + comunicazioni_mcu.h
+
+Pin map:
+  Serial2 (pin 7 RX, 8 TX)  @ 1 Mbps    -> LWS verso Router
+  SerialFlash CS = 6                    -> drum samples
+  SD CS = 10                            -> tracce WAV + pattern TXT
+  SPI: MISO=12, MOSI=11, SCK=13
+  I2S + I2C: da Teensy Audio Shield (pin 7,8,18-23)
+  Audio out: PWM su pin 15? (Audio Shield)
+
+Feature:
+  - Drum sampler 8 voci (AudioPlaySerialflashRaw)
+  - 3 track WAV SD (AudioPlaySdWav x2)
+  - Mixer + FX (filter, delay, reverb)
+  - Sequencer (16 pattern x 8 voci x 32 step)
+  - Preset pattern con nomi personalizzati (file /PTN0.NAME .. /PTN15.NAME)
+
+Chiavi LWS per target 'T' (CMD_PARAM / CMD_PARAM_VOCE):
+  R   run                     S   stop
+  b   bpm (60-250)            N   pattern (0-15)
+  K   kit (1-16)              T   track WAV (0-4)
+  X   sync source (0-2)       d   drum level (0-20)
+  f   fx level (0-20)         m   mono level (0-20)
+  t   track2 level (0-20)     u   track3 level (0-20)
+  M   mute bitmask            V   voice select (1-9)
+  A   sample num              L   voice level
+  P   voice pan               I   rev int send
+  e   FX preset (0-15)
+  1-8 rev size/damp/predly/cut/res/cut2/res2/mode
+  Z   status query            C   cpu info
+  Q   pattern info query (nuovo)
+
+Preset drum da SD: nomi in /PTN0.NAME .. /PTN15.NAME (una riga per file).
+
+
+--------------------------------------------------------------------------------
+7. LUD-WS-SYNTHA (RP2040) — rev 9 — COMPLETO
+--------------------------------------------------------------------------------
+
+Tre chip da UN SOLO sketch, differenza solo per #define MCU_ID:
+
+  MCU_ID 'a'  ->  NUM_VOCI=1, VOCE_BASE=0  (Master, 1 voce + bridge)
+  MCU_ID 'b'  ->  NUM_VOCI=2, VOCE_BASE=1  (V_A, 2 voci + relay)
+  MCU_ID 'c'  ->  NUM_VOCI=2, VOCE_BASE=3  (V_B, 2 voci, no relay)
+
+File:
+  Lud-WS-SynthA_M.ino       bootstrap, setup, loop, definizione variabili
+  synthConfig.h             config chip + chiavi K_*
+  synthState.h              extern variabili globali
+  synthEngine.h             IRQ PWM, ADSR, note stack, wavetable, glide
+  synthControl.h            LFO mod/pitch per-voce, arp, gater
+  synthLws.h                callback, bridge, Poly broadcast, preset
+  synthPreset.h             utility preset (buffer + parser K-V)
+  ottaveA.h                 tabelle noteArr[3][61], voctpow[1230],
+                            bendMaxUpArr[5], bendMaxDownArr[5]
+  serial_protocol.h         condiviso
+  comunicazioni_mcu.h       condiviso
+
+Modello voci:
+  - Ogni voce e' un synth MONOFONICO
+  - Ogni voce ha 2 SUB_VOCI (oscillatori):
+      sub_voce 0: nota base
+      sub_voce 1: nota base + interval (semitoni, -24..+24)
+      sub_voce 1 ha il suo waveform + subLevel
+  - ADSR per-voce (A D S R, 0..255)
+  - Note stack (priorita' alle note premute, NoteOff torna alla precedente)
+  - Glide/slide per-voce (0..1s)
+  - FM operator parameters condivisi (fmSetSin[8][3], fmSetDiv[8][3])
+
+Modi:
+  Poly (K_SYNTH_MODE=0):
+    Tutte le voci eseguono lo stesso preset.
+    Il Master 'a' broadcasta automaticamente i comandi della voce 0
+    verso le voci 1,2 (a 'b') e 3,4 (a 'c').
+  MultiMono (K_SYNTH_MODE=1):
+    Ogni voce indipendente. Il Display indirizza esplicitamente
+    ogni voce con il byte voice nel payload.
+
+Porte:
+  'a': LWS_PORT_UP = SerialPIO(2,3) @ 115200 (verso Router)
+       LWS_PORT_DOWN = Serial1 (UART0) @ 1 Mbps (verso 'b')
+  'b': LWS_PORT_UP = Serial1 @ 1 Mbps
+       LWS_PORT_DOWN = Serial2 (UART1) @ 1 Mbps (verso 'c')
+  'c': LWS_PORT_UP = Serial1 @ 1 Mbps
+       HAS_DOWNSTREAM = 0
+
+Bridge:
+  Master 'a': frame con target != 'a' -> forward su DOWN
+              frame da DOWN -> forward su UP (verso Router)
+  Slave 'b':  identico
+  Slave 'c':  solo UP (no DOWN)
+
+Poly broadcast (solo 'a'):
+  Se synthMode == Poly e arriva CMD_MIDI_*_V o CMD_PARAM_*_V con voice 0,
+  replica il frame per voci 1,2,3,4 e li invia su DOWN.
+
+Chiavi LWS per voce (uint8, CMD_PARAM_VOCE):
+  m   mode (0=WF, 1=FM, 2=AM)
+  w   waveform sub_voce 0 (0..8)
+  c   waveform sub_voce 1 (0..8)
+  F   fm select (0..7)
+  o   ottava (1..3)
+  a   attenua (0..9)
+  k   tracking (keytracking)
+  d   detune (0..100)
+  t   tempo slide (0..99)
+  v   vcf wave (0..4)
+  l   vcf lfo level (0..255)
+  s   vcf lfo rate (0..255)
+  1   vcf lfo sync (0/1)
+  3   vcf multi (0..12)
+  4   vcf start (0..99)
+  u   bend max up (0..4)
+  n   bend max down (0..4)
+  B   send bend (0/1)
+  M   send mod (0/1)
+  S   slide on/off (0/1)
+  y   lfo mod sync (0/1)
+  D   dsp slot (0..15)
+  r   arp on (0/1)
+  R   arp mode (0/1/2)
+  A   arp multi (0..4)
+  T   arp octaves (0..2)
+  g   gater on (0/1)
+  G   gater num (0..7)
+  H   gate multi (0..4)
+  L   gate lung (0..99)
+  O   conta offset (0..255)
+  C   midi channel (1..16)
+  Z   nota split (0..108)
+  X   midi mode (0..3)
+  e   sub1 level (0..20)
+  9   voice vol (0..20)
+  5   ADSR attack (0..255)
+  6   ADSR decay (0..255)
+  7   ADSR sustain (0..255)
+  8   ADSR release (0..255)
+
+Chiavi LWS per voce (int32, CMD_PARAM_I32_V):
+  i   mod in B (0..1023)
+  I   mod level (0..1023)
+  f   lfo rate (350..80000 us, inverso)
+  j   pitch level (0..550)
+  J   pitch rate (350..80000 us)
+  x   FM sin 0 (float*100)
+  X   FM sin 1
+  Y   FM sin 2
+  q   FM div 0 (1..600)
+  Q   FM div 1
+  W   FM div 2
+  h   sub1 interval (-24..+24)
+
+Chiavi globali chip (CMD_PARAM_I32):
+  e   calib select (0..60)
+  E   calib value (freq * 10)
+
+Chiavi sistema (CMD_PARAM, solo Master):
+  Y   synth mode (0=Poly, 1=MultiMono)
+  P   preset select (0..29)
+  Q   preset save (0..29)
+  U   voice mute (0/1)
+  !   panic
+  O   all notes off
+
+
+--------------------------------------------------------------------------------
+8. LUD-WS-SYNTHB (RP2040) — rev 1 — COMPLETO
+--------------------------------------------------------------------------------
+
+File:
+  Lud-WS-SynthB.ino         bootstrap
+  synthB_Config.h           config + chiavi
+  synthB_State.h            extern
+  synthB_Engine.h           IRQ PWM, aux ADSR, note stack, alloc slot
+  synthB_Control.h          LFO mod/pitch
+  synthB_Lws.h              callback, dispatch, preset
+  synthPreset.h             comune
+  ottaveB.h                 tabelle
+  serial_protocol.h         condiviso
+  comunicazioni_mcu.h       condiviso
+
+Modello: parafonico, POLIMAX=6 slot indipendenti.
+         Wavetable UNICA condivisa.
+Modi:
+  mono  (K_SYNTHB_MODE=0): 1 nota alla volta, glide tra note consecutive
+  poly  (K_SYNTHB_MODE=1): 6 note contemporanee, allocazione dinamica
+
+Slide: per-slot, attivo sia in mono che in poly.
+       Fresh slot: jump. Stolen slot: glide.
+
+DCO: gate secco (nessun ADSR applicato al DCO).
+Aux ADSR: presente ma non applicato (revisione futura).
+
+Porta: Serial1 (UART0) @ 115200 verso Router.
+
+Chiavi LWS (CMD_PARAM):
+  m   mode (0=WF, 1=FM, 2=AM)
+  w   waveform (0..8)
+  F   fm select (0..7)
+  o   ottava (1..3)
+  a   attenua (0..9)
+  u   bend up
+  n   bend down
+  5   ADSR aux attack
+  6   ADSR aux decay
+  7   ADSR aux sustain
+  8   ADSR aux release
+  y   synthB mode (0=mono, 1=poly)
+  !   panic
+  P   preset select (0..29)
+  Q   preset save (0..29)
+
+Chiavi LWS (CMD_PARAM_I32):
+  i   mod in B
+  I   mod level
+  f   lfo rate
+  j   pitch level
+  J   pitch rate
+  h   slide time (0..1000 ms)
+  x X Y   FM sin 0/1/2
+  q Q W   FM div 0/1/2
+
+
+--------------------------------------------------------------------------------
+9. LUD-WS-DISPLAY (ESP32-S3) — IN CORSO
+--------------------------------------------------------------------------------
+
+File principali:
+  Lud-WS-Display.ino
+  globals.h
+  preset_sd.h / preset_sd.cpp          nuovo formato binario
+  preset_cache.h / preset_cache.cpp    cache locale (Strada A)
+  preset_transfer.h                    load/save/poly/multimono
+  preset_ui.h                          helper UI
+  comunicazioni.h                      patchato (+extern, +prototipo, +case)
+  serial_protocol.h                    condiviso
+  images.c
+  src/grafica/lvglGrafFunc.cpp
+
+Sistema preset:
+  SD:
+    /preset/synthA/preset_00.bin .. preset_29.bin    (30 preset)
+    /preset/synthA/nomi_presetA.txt                  (30 righe)
+    /preset/synthB/preset_00.bin .. preset_29.bin
+    /preset/synthB/nomi_presetB.txt
+
+  RAM:
+    char nome_presetA[30][32]
+    char nome_presetB[30][32]
+
+Formato preset binario K-V:
+  [version=0x01]
+  [key][len][value...]  ripetuto per ogni entry settata
+  [0xFF]
+  [crc8]
+
+Cache locale (Strada A):
+  struct PresetCache {
+    int32_t value[256];
+    uint8_t type[256];   // 0=unset, 1=u8, 2=i16, 4=i32
+  };
+  PresetCache cacheA[5];   // una per voce SynthA
+  PresetCache cacheB;      // SynthB
+
+  uiSetParamU8(voice, key, value)    -> cache + LWS
+  uiSetParamI32(voice, key, value)   -> cache + LWS
+  uiSetParamB_U8(key, value)         -> cache B + LWS
+  uiSetParamB_I32(key, value)        -> cache B + LWS
+
+Funzioni transfer:
+  sendBlobToVoice(target, voice, buf, len)
+  loadPresetToVoice(target, voice, presetId, PresetCache*)
+  loadPresetSynthA_Poly(presetId)
+  loadPresetSynthA_MultiMono(map[5])
+  loadPresetSynthB(presetId)
+  savePresetA(voice, presetId)
+  savePresetB(presetId)
+
+Funzioni LWS aggiunte in comunicazioni.h:
+  send_param_voce(target, voice, key, value)
+  send_param_i32_voce(target, voice, key, value)
+  send_midi_note_v(target, voice, onoff, pitch, vel)
+  targetForVoice(voice) -> 'a' / 'b' / 'c'
+  case CMD_PRESET_ACK in process_frame()
+
+Variabili globali ACK (definite in .ino):
+  volatile bool    preset_ack_received
+  volatile uint8_t preset_ack_status
+
+
+--------------------------------------------------------------------------------
+10. SISTEMA PRESET (fase A — completa lato codice)
+--------------------------------------------------------------------------------
+
+Struttura file su SD:
+  /preset/
+    synthA/
+      preset_00.bin .. preset_29.bin     (30 file)
+      nomi_presetA.txt                    (30 righe)
+    synthB/
+      preset_00.bin .. preset_29.bin
+      nomi_presetB.txt
+
+Uso:
+  Poly:       loadPresetSynthA_Poly(presetId)
+              -> carica lo stesso blob sulle 5 voci
+  MultiMono:  loadPresetSynthA_MultiMono(map[5])
+              -> map[i] = preset per voce i
+  SynthB:     loadPresetSynthB(presetId)
+
+  Save A:     savePresetA(voice, presetId)   (serializza cacheA[voice])
+  Save B:     savePresetB(presetId)
+
+Flusso load:
+  Display legge .bin da SD
+    -> popola cache
+    -> invia blob con CMD_PRESET_BEGIN/CHUNK/END
+    -> attende CMD_PRESET_ACK
+
+Flusso save:
+  Display serializza cacheA/B in K-V
+    -> scrive file .bin su SD
+
+
+--------------------------------------------------------------------------------
+11. CMD ESTESI SERIAL_PROTOCOL.H — AGGIUNTE
+--------------------------------------------------------------------------------
+
+Da aggiungere a serial_protocol.h (in TUTTI i nodi):
+
+  #define CMD_PARAM_VOCE   'V'
+  #define CMD_PARAM_I32    'I'
+  #define CMD_PARAM_I32_V  'J'
+  #define CMD_MIDI_NOTE_V  'N'
+  #define CMD_MIDI_BEND_V  'M'
+  #define CMD_MIDI_CC_V    'K'
+
+  #define CMD_PRESET_BEGIN       'b'
+  #define CMD_PRESET_CHUNK       'h'
+  #define CMD_PRESET_END         'e'
+  #define CMD_PRESET_ACK         'a'
+  #define CMD_PRESET_READ        'r'
+  #define CMD_PRESET_DUMP_BEGIN  'K'   <-- in collisione, rinominare
+  #define CMD_PRESET_DUMP_CHUNK  'L'
+  #define CMD_PRESET_DUMP_END    'O'
+
+
+--------------------------------------------------------------------------------
+12. FEATURE RIMOSSE DAI PROGETTI ORIGINALI
+--------------------------------------------------------------------------------
+
+SynthA:
+  - Libreria MIDI.h e MIDI hardware
+  - Encoder rotativi (PioEncoder)
+  - Bottoni (Bounce)
+  - Potenziometri (ResponsiveAnalogRead)
+  - Display companion legacy (protocollo proprietario su Serial2)
+  - POLIMAX (parafonia 6 voci): sostituito da 1 voce + 2 sub_voci
+  - Forward Vermona (MIDI send to external synth)
+  - waldorfCC() (log CC Waldorf)
+  - Split mode MIDI
+  - ctrlFuncA.h, pagineA.h, sendFuncA.h
+
+SynthB:
+  - Libreria MIDI.h
+  - Protocollo legacy companion (leggiSerialB.h)
+  - POLIMAX=7: ridotto a 6 con significato parafonico
+
+Display:
+  - Sistema preset CSV/struct (timbrA[16][23], timbrB[16][26])
+  - Sostituito da formato binario K-V
+
+Router:
+  - Path legacy SynthA (ora LWS nativo)
+
+
+--------------------------------------------------------------------------------
+13. COSE DA FARE (TODO)
+--------------------------------------------------------------------------------
+
+CRITICHE:
+  1. Collisione 'K' in serial_protocol.h:
+       CMD_MIDI_CC_V='K' e CMD_PRESET_DUMP_BEGIN='K'.
+       Rinominare uno dei due (es. CMD_PRESET_DUMP_BEGIN='Q').
+
+  2. Patch Display globals.h:
+       Rimuovere timbrA, timbrB, tempTimbrA, tempTimbrB,
+       presetNamesA, presetNamesB, MAX_preset (16).
+       Aggiungere include preset_sd.h.
+
+  3. Patch Display Lud-WS-Display.ino setup():
+       Aggiungere init_sd() e presetCacheClearAll() nel ramo if (sd_ok).
+       Rimuovere loadAllFromSD, saveAllToSD, initPresetValues.
+       Aggiungere include preset_cache.h, preset_transfer.h, preset_ui.h.
+
+  4. Pagina DRUM Display:
+       UI da scrivere/cablare. Usa uiSetParamU8 / uiSetParamI32.
+       Serve il file esistente della pagina per la patch.
+
+FEATURE NON IMPLEMENTATE:
+  - DSP effetti (SynthA/SynthB): chiavi accettate, non applicate
+  - VCF LFO -> "nuovo modo": calcolato, output ignorato
+  - MIDI mode split: parametri accettati, non usati
+  - Preset dump (CMD_PRESET_READ + DUMP_*): stub, non implementato
+  - SynthB periferiche hardware: da definire
+  - Revisione ADSR: da rivedere dopo test audio
+
+RACE CONDITION (annotate, non risolte):
+  - SynthA mod2_wavetable_loc[v][s][256]:
+      scritta da core 1 (loop1), letta da IRQ core 0.
+      Mitigazione futura: doppio buffer + flag atomico.
+  - SynthB mod2_wavetable[256]:
+      core 0 (loop1 in loop normale), meno critico.
+
+TEST DA FARE (quando hardware montato):
+  1. Discovery singolo nodo (a -> b -> c -> B -> T)
+  2. Nota semplice su voce 0
+  3. Poly broadcast
+  4. Cambio parametro runtime
+  5. Preset transfer
+  6. Cascata (b, c via relay)
+  7. Slide mono/poly
+  8. Arp/gater
+  9. Panic broadcast
+ 10. Stress
+
+
+--------------------------------------------------------------------------------
+14. CONVENZIONI
+--------------------------------------------------------------------------------
+
+Voice globale (SynthA): 0..4
+Voice locale (per chip): 0..NUM_VOCI-1
+Sub_voce (SynthA): 0..1 (2 per voce)
+POLIMAX (SynthB): 6 (slot parafonici)
+
+Chiavi K_*:
+  uint8: nome 1 char
+  int32/uint16: per FM operator
+
+Payload LWS:
+  target in data[0] per CMD_PARAM/PARAM_VOCE/PING
+  voice in data[1] per CMD_PARAM_VOCE/PARAM_I32_V
+  voice in data[0] per CMD_MIDI_*_V (dopo il target in data[0])
+    Formato completo CMD_MIDI_*_V: [target][voice][...]
+
+Poly broadcast: solo Master 'a' in modalita' Poly
+Bridge/relay: 'a' -> 'b' -> 'c'
+
+
+--------------------------------------------------------------------------------
+15. PROSSIMO STEP
+--------------------------------------------------------------------------------
+
+Quando l'utente torna:
+
+  Se hardware montato:
+    Iniziare test da Fase 1 (discovery).
+
+  Se non montato:
+    A) Risolvere collisione 'K'
+    B) Patch Display globals.h + setup()
+    C) Scrivere/cablare pagina DRUM Display
+    D) Implementare DSP effetti (fase E)
+    E) Implementare preset dump (fase 2)
+    F) Revisione ADSR
+
+
+--------------------------------------------------------------------------------
+16. FILE PYTHON GENERATOR PRESET
+--------------------------------------------------------------------------------
+
+Script che serializza K-V + CRC per generare i file .bin.
+
+  import struct
+  def crc8(data):
+      crc = 0
+      for b in data:
+          crc ^= b
+          for _ in range(8):
+              crc = ((crc << 1) ^ 0x07) & 0xFF if (crc & 0x80) else (crc << 1) & 0xFF
+      return crc
+
+  def entry(key, val, fmt):
+      v = struct.pack('<' + fmt, val)
+      return bytes([ord(key), len(v)]) + v
+
+  def build_preset(params):
+      buf = bytes([0x01])
+      for k, v, f in params:
+          buf += entry(k, v, f)
+      buf += bytes([0xFF])
+      buf += bytes([crc8(buf)])
+      return buf
+
+  Salva in /preset/synthA/preset_NN.bin o synthB.
+
+Formato nomi:
+  nomi_presetA.txt -> 30 righe di testo (una per preset)
+  nomi_presetB.txt -> idem
+
+
+================================================================================
+FINE RIEPILOGO
+================================================================================

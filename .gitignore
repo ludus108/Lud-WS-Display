@@ -1,27 +1,25 @@
 # ==========================
+# PLATFORMIO
+# ==========================
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# ==========================
+# BUILD FILES
+# ==========================
+*.elf
+*.hex
+*.bin
+*.map
+
+# ==========================
 # BACKUP FILES
 # ==========================
 *.bak
 *.old
 *.tmp
-*.txt
 *~
-
-# ==========================
-# ARDUINO BUILD FILES
-# ==========================
-/build/
-/build.*/
-*.ino.pre.cpp
-*.ino.d
-*.ino.elf
-*.ino.eep
-*.ino.with_bootloader.bin
-*.ino.bootloader.bin
-*.ino.partitions.bin
-*.ino.bin
-*.elf
-*.hex
 
 # ==========================
 # SYSTEM FILES
@@ -31,17 +29,24 @@ Thumbs.db
 *.swp
 *.swo
 *.swn
-*.log
 
 # ==========================
-# IDE SETTINGS (opzionale)
+# IDE / EDITOR
 # ==========================
-.vscode/
 .idea/
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/browse.vc.db*
+.vscode/ipch/
 *.code-workspace
 
 # ==========================
-# SD CARD DATA (da non versionare)
+# SD CARD DATA (dati runtime)
 # ==========================
 /data/
 /sd/
+
+# ==========================
+# FILE DI CONFIGURAZIONE LOCALE
+# ==========================
+# (aggiungi qui eventuali file con path assoluti personali)

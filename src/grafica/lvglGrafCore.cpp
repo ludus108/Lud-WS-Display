@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <math.h>
 #include "lvgl_v8_port.h"
-#include "src/preset/preset_ui.h"
+#include "preset/preset_ui.h"
 
 #define ENV_POINTS     60
 
@@ -1157,11 +1157,11 @@ void submenu(lv_obj_t *p) {
     // Suffisso in base al synth attivo
     const char *sfx = (g.synth && strcmp(g.synth, "SYNTH B") == 0) ? " B" : " A";
 
-    const char *names[] = {"DCO","VCF","MOD","VCA","DLY"};
+    const char *names[] = {"DCO","VCF","LFO","VCA","DLY"};
     lv_color_t cols[] = {
         lv_color_hex(0x00FF00),   // DCO
         lv_color_hex(0xCC3300),   // VCF
-        lv_color_hex(0x0099FF),   // MOD
+        lv_color_hex(0x0099FF),   // LFO
         lv_color_hex(0xFFCC33),   // VCA
         lv_color_hex(0xBB88FF)    // DLY
     };

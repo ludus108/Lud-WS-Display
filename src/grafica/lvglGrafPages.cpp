@@ -5,7 +5,7 @@
 #include "lvglGraf.h"
 #include "lvglGraf_internal.h"
 #include "lvgl_v8_port.h"
-#include "src/preset/preset_ui.h"
+#include "preset/preset_ui.h"
 
 
 const char *g_current_page = nullptr;
@@ -227,6 +227,7 @@ void reset_ui_pointers() {
 	    reset_vcfb_page();
     vcfA_reset_pointers();
     fmEdit_reset_pointers();
+    lfoB_reset_pointers();
 }
 void page_begin(const char *title) {
     DBG("page_begin: %s\n", title ? title : "HOME");
@@ -479,12 +480,16 @@ void create_page(const char *title) {
         create_preset_label(m, NULL, isA);
         home_btn(m, -2);
     }
-    // ---------------- MOD A / B ----------------
-    else if (strncmp(title, "MOD", 3) == 0) {
+       // ---------------- LFO A / LFO B ----------------
+    else if (strncmp(title, "LFO", 3) == 0) {
         bool isA = (g.synth && strcmp(g.synth, "SYNTH A") == 0);
         if (isA) {
+            // LFO A: 6 pot P1..P6 (invariato)
             create_pot_container(m, 100, 100);
             create_preset_label(m, NULL, isA);
+        } else {
+            // LFO B: modulo dedicato (8 wave + 3 slider)
+            lfoB_page_create(m);
         }
         home_btn(m, -2);
     }
@@ -918,7 +923,7 @@ void eb(lv_event_t *e) {
         return;
     }
     if (id >= 10 && id <= 14) {
-        const char *sub[] = {"DCO","VCF","MOD","VCA","DLY"};
+        const char *sub[] = {"DCO","VCF","LFO","VCA","DLY"};
         char title[20];
         if (g.synth) {
             const char *sfx = (strcmp(g.synth, "SYNTH A") == 0) ? "A" : "B";

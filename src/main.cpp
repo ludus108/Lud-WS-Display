@@ -1,9 +1,8 @@
 // Hardware: VIEWE UEDX80480050E_WB_B (ESP32-S3, 800x480)
-//FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi
+//FQBN: esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=custom,PSRAM=opi
 // ============================================================
-// LUD-WS-Display — Versione 0.0.18
+// LUD-WS-Display — Versione 0.0.19
 // ============================================================
-// MODIFICHE SESSIONE 2026-09-30
 //
 // REFACTORING
 //  - lvglGrafModules.cpp diviso in 4 file:
@@ -82,8 +81,10 @@
 #include "globals.h"
 #define LWS_BAUD 1000000UL  // 1 Mbps — bus LWS
 // ============= DEFINIZIONI VARIABILI GLOBALI =======
-const char *last_version = "V 0.0.18";
+const char *last_version = "V 0.0.19";
+
 struct GlobalData g;
+
 lv_obj_t *arr[8] = { 0 };
 lv_obj_t *slider_objs[8] = { 0 };
 bool crs[8] = { 0 };
@@ -146,6 +147,7 @@ lv_obj_t *keyboard_obj = nullptr;
 lv_obj_t *drum_pattern_label = nullptr;
 volatile bool preset_ack_received = false;
 volatile uint8_t preset_ack_status = 0;
+
 // ========================== DEFINIZIONE WAVESHAPE ==========================
 WaveDef WAVE_DEFS[NUM_WAVES] = {
   { "SAW", CAT_WF }, { "SAW8", CAT_WF }, { "TRI", CAT_WF }, { "SQR", CAT_WF }, { "SINE", CAT_WF }, { "FM 1", CAT_WF }, { "FM 2", CAT_WF }, { "FM 3", CAT_WF }, { "NOISE", CAT_WF }, { "FM 1", CAT_FM }, { "FM 2", CAT_FM }, { "FM 3", CAT_FM }, { "FM 4", CAT_FM }, { "FM 5", CAT_FM }, { "FM 6", CAT_FM }, { "FM 7", CAT_FM }, { "FM 8", CAT_FM }, { "AM 1", CAT_AM }, { "AM 2", CAT_AM }, { "AM 3", CAT_AM }, { "AM 4", CAT_AM }, { "AM 5", CAT_AM }, { "AM 6", CAT_AM }, { "AM 7", CAT_AM }, { "AM 8", CAT_AM }
@@ -155,12 +157,12 @@ WaveDef WAVE_DEFS[NUM_WAVES] = {
 bool sd_init();
 
 // ========================== INCLUDE HEADER ==========================
-#include "src/grafica/lvglGraf.h"
+#include "grafica/lvglGraf.h"
 #include "comunicazioni.h"
-#include "src/preset/preset_sd.h"  // (già dentro globals.h, se hai fatto la patch)
-#include "src/preset/preset_cache.h"
-#include "src/preset/preset_transfer.h"  // contiene sendBlobToVoice, loadPresetToVoice, ecc.
-#include "src/preset/preset_ui.h"
+#include "preset/preset_sd.h"  // (già dentro globals.h, se hai fatto la patch)
+#include "preset/preset_cache.h"
+#include "preset/preset_transfer.h"  // contiene sendBlobToVoice, loadPresetToVoice, ecc.
+#include "preset/preset_ui.h"
 // =========================================================================
 // PRESET — Wrapper per la UI
 // =========================================================================
@@ -227,6 +229,8 @@ void reset_GT911() {
   digitalWrite(38, HIGH);
   delay(100);
 }
+
+
 // ========================== SETUP ==========================
 void setup() {
   Serial.begin(115200);
@@ -283,19 +287,6 @@ void setup() {
   create_home();
   lvgl_port_unlock();
 
-/* Serial.printf("[DISP] hor=%d ver=%d\n",
-              lv_disp_get_hor_res(0),
-              lv_disp_get_ver_res(0)); //TEST
-    Serial.printf("[PAGE] scr size=%dx%d content=%dx%d pad=%d,%d,%d,%d\n",
-                  lv_obj_get_width(lv_scr_act()),
-                  lv_obj_get_height(lv_scr_act()),
-                  lv_obj_get_content_width(lv_scr_act()),
-                  lv_obj_get_content_height(lv_scr_act()),
-                  lv_obj_get_style_pad_left(lv_scr_act(), 0),
-                  lv_obj_get_style_pad_right(lv_scr_act(), 0),
-                  lv_obj_get_style_pad_top(lv_scr_act(), 0),
-                  lv_obj_get_style_pad_bottom(lv_scr_act(), 0));//TEST */
-  // Log + caricamento preset da SD
   if (sd_ok) {
     log_add("SD: OK", lv_color_hex(0x00FF00));
 
@@ -327,12 +318,8 @@ void setup() {
 void loop() {
   // RX LWSv1 dal Router
   if (Serial1.available() > 0) leggiSer();
-
   // State machine discovery (un ping per ciclo, early-exit se tutti rispondono)
   discover_all_mcu_poll();
-
-  // UI
-  lv_timer_handler();
   delay(5);
 
   // Auto-hide del log: dopo LOG_TIMEOUT (2000 ms), anche per gli errori

@@ -1,0 +1,66 @@
+================================================================================
+NOTA — PAN E LEVEL HH/OH CONDIVISI
+================================================================================
+
+Sul Teensy, HH e OH condividono:
+  - lo stesso canale di uscita (mixDrum1 ch 1, via sottomixer mixHH)
+  - lo stesso pan
+  - lo stesso level
+
+Motivo: il grafo audio non ha canali liberi per separarli senza un
+refactoring invasivo. La condivisione è una scelta di design.
+
+
+COSA DEVE FARE LA GUI
+
+1. Presentare HH/OH come una voce unica per pan e level.
+   Esempio: uno slider "HH/OH Pan" e uno slider "HH/OH Level".
+   Non due slider separati, perché non avrebbero effetto indipendente.
+
+2. Se l'utente edita il pan o il level da un controllo OH, il Display
+   invia comunque il comando con key 'P' o 'L' e voice=HH (voice=3).
+   Sul Teensy il valore viene riflesso su entrambe le righe di
+   kitPanArr/kitLevArr, così la GUI può mostrarli allineati.
+
+3. Mute: HH e OH condividono il bit 2 della maschera 'M'.
+   Un solo toggle "HH/OH" in GUI.
+
+4. BD: nessun controllo pan (sempre mono). Mostrare "MONO" o
+   disabilitare lo slider pan quando voiceSel=1.
+
+
+MAPPA DEI CONTROLLI PAN DISPONIBILI (7 slider)
+
+  #   Voce      voiceSel   Note
+  --  --------  ---------  ---------------------------
+  1   SD        2
+  2   HH/OH     3 (o 4)    controlli condivisi
+  3   HH2       5
+  4   CLAP      6
+  5   PERC1     7
+  6   PERC2     8
+  7   PERC3     9
+
+  BD (voiceSel=1)  -> nessun pan, sempre mono
+
+
+VALORI PAN (0..100)
+
+  0        hard right
+  10       centro
+  20       hard left
+  21..50   non usati (clampati a 20 dal Teensy)
+  51..100  mono (L=R)
+
+Per un feel naturale, lo slider in GUI può essere limitato a 0..20
+(panning puro), lasciando il mono come toggle separato che invia 100.
+
+
+COMANDI LWS COINVOLTI
+
+  'P'  pan      valore 0..100
+  'L'  level    valore 0..20
+  'V'  voice    valore 1..9 (1=BD, 2=SD, 3=HH, 4=OH,
+                            5=HH2, 6=CLAP, 7=PERC1, 8=PERC2, 9=PERC3)
+
+================================================================================

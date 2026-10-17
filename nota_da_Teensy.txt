@@ -1,0 +1,151 @@
+================================================================================
+NOTA — CONTROLLO SWING (Lud-WS-Teensy <-> Lud-WS-Display)
+================================================================================
+Da leggere nella chat del Display. Descrive come funziona lo swing lato
+Teensy e cosa deve fare il Display per restare sincronizzato.
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. COMANDO LWS
+--------------------------------------------------------------------------------
+
+  Key:    'W'   (target 'T')
+  Tipo:   CMD_PARAM 'S'  ->  [target='T']['W'][value]
+  Payload value: uint8_t (0..255)
+
+
+--------------------------------------------------------------------------------
+2. RANGE EFFETTIVO
+--------------------------------------------------------------------------------
+
+  Min:            0        (swing disattivato)
+  Max teorico:    255      (limite del campo uint8)
+  Max utile:      swingMax (dipende dal BPM corrente)
+  Valori > swingMax: clampati silenziosamente dal Teensy
+
+  swingMax si calcola con la stessa formula del Teensy:
+
+      preSeqTime = floor((60000 / bpm) / 4)         // ms per uno step (sedicesimo)
+      swingMax   = floor(preSeqTime / 2) - 2
+
+  Tabella di riferimento:
+
+      BPM   preSeqTime (ms)   swingMax
+      ---   ---------------   --------
+       60        250            123
+       90        166             81
+      120        125             60
+      185         81             38
+      250         60             28
+
+
+--------------------------------------------------------------------------------
+3. COME AGISCE LO SWING
+--------------------------------------------------------------------------------
+
+  Il Teensy applica lo swing alternando la durata degli step:
+
+      step pari   (0,2,4,...)  ->  durata = preSeqTime + swingTime
+      step dispari (1,3,5,...)  ->  durata = preSeqTime - swingTime
+
+  Effetti:
+    - La somma su due step consecutivi resta costante (2 * preSeqTime):
+      il tempo medio non cambia, si sposta solo l'accento ritmico.
+    - La parità è riferita a curSubStep (0..15 dentro il blocco di 16 step).
+    - Il boundary di blocco (fine sezione / fine fill) resetta il contatore,
+      quindi 16 è pari e la parità non ha salti.
+
+
+--------------------------------------------------------------------------------
+4. COMPORTAMENTO AL CAMBIO BPM
+--------------------------------------------------------------------------------
+
+  Quando l'utente cambia BPM ('b'):
+    - Il Teensy ricalcola preSeqTime e swingMax.
+    - Se swingTime era maggiore del nuovo swingMax, viene clampato.
+    - Il Teensy invia due echo:
+
+        'b' -> BPM applicato
+        'W' -> swingTime effettivo (post-clamp)
+
+  Il Display DEVE:
+    - Ricalcolare swingMax dall'echo di 'b' con la formula sopra, oppure
+      direttamente, e aggiornare il range dello slider swing.
+    - Aggiornare il valore dello slider con l'echo di 'W' ricevuto.
+    - Non assumere che il valore inviato da 'W' sia quello memorizzato:
+      fidarsi dell'echo.
+
+  Questo evita che il Display mostri uno swing "fantasma" (valore
+  richiesto ma non applicato) dopo un cambio BPM.
+
+
+--------------------------------------------------------------------------------
+5. COMPORTAMENTO SU STOP
+--------------------------------------------------------------------------------
+
+  In pattern mode (sync 0), quando il sequencer si ferma:
+
+      swingTime = min(30, swingMax)
+
+  Cioè viene riportato a 30 ms se consentito, altrimenti a swingMax.
+  Il Teensy NON invia echo automatico a questo reset: se vuoi che il
+  Display si allinei, chiedi un dump con 'Z' oppure aggiungi un echo
+  esplicito lato Teensy.
+
+
+--------------------------------------------------------------------------------
+6. COSA DEVE FARE IL DISPLAY — CHECKLIST
+--------------------------------------------------------------------------------
+
+  [ ] Slider swing con range 0..swingMax.
+  [ ] swingMax ricalcolato a ogni cambio BPM (formula sopra).
+  [ ] Sull'invio di 'W': inviare il valore scelto, poi aggiornare lo
+      slider con l'echo 'W' ricevuto.
+  [ ] Su ricezione echo 'b': ricalcolare swingMax e aggiornare il range
+      dello slider; se il valore corrente eccede il nuovo max, attendere
+      l'echo 'W' che arriverà subito dopo.
+  [ ] Non mostrare valori > swingMax come "attivi": clampali in UI prima
+      dell'invio, così quello che l'utente vede coincide con quello che
+      sente.
+  [ ] Dopo uno STOP in pattern mode, richiedere 'Z' per risincronizzare
+      lo slider (oppure attendere il prossimo echo 'W' inviato dal
+      Teensy se verrà aggiunto).
+
+
+--------------------------------------------------------------------------------
+7. FORMULA PRONTA PER IL DISPLAY (C/C++)
+--------------------------------------------------------------------------------
+
+  // Ritorna swingMax per il BPM dato.
+  // Stessa formula usata dal Teensy in bpmToTime().
+  uint32_t swingMaxForBpm(uint16_t bpm) {
+    if (bpm < 60)  bpm = 60;
+    if (bpm > 250) bpm = 250;
+    uint32_t preSeqTime = (60000 / bpm) / 4;
+    if (preSeqTime < 4) return 0;           // guardia per BPM estremi
+    return (preSeqTime / 2) - 2;
+  }
+
+
+--------------------------------------------------------------------------------
+8. RIEPILOGO E SEMANTICA DEI MESSAGGI
+--------------------------------------------------------------------------------
+
+  Display -> Teensy:
+    'W' = x      richiesta di impostare swingTime a x (clampato lato Teensy)
+
+  Teensy -> Display:
+    'W' = x      valore effettivo applicato (post-clamp)
+                 inviato come echo dopo ogni 'W' ricevuto e dopo ogni
+                 cambio di BPM ('b')
+
+  Nota: il payload è uint8, quindi x è sempre 0..255. Per BPM bassi
+  swingMax può arrivare a 123 (BPM 60), ben dentro il range del campo.
+  Non ci sono problemi di overflow nel cast (uint8_t)swingTime con i
+  valori attuali del progetto.
+
+
+================================================================================
+FINE NOTA
+================================================================================

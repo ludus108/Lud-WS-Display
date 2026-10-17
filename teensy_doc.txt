@@ -1,0 +1,272 @@
+================================================================================
+NOTA DI CONTINUITÀ — GUI DRUM SEQUENCER per Lud-WS-Display
+================================================================================
+Da incollare come primo messaggio nella chat dedicata al Display.
+Contiene tutto ciò che serve per progettare la GUI del drum sequencer
+in coerenza con le ultime modifiche al firmware Lud-WS-Teensy (rev 12).
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. CONTESTO: COSA È CAMBIATO SUL TEENSY (rev 12)
+--------------------------------------------------------------------------------
+
+Il Teensy 4.1 (Lud-WS-Teensy) è stato aggiornato in modo sostanziale.
+La GUI del Display deve rispecchiare le nuove strutture.
+
+
+--------------------------------------------------------------------------------
+2. LAYOUT VOCI DRUM — 9 RIGHE
+--------------------------------------------------------------------------------
+
+  Idx   Voce     Nome                Mute (bitmask 'M')
+  ---   -----    ----------------    ------------------
+   0    BD       bass drum           bit 0
+   1    SD       snare               bit 1
+   2    HH       hi-hat closed       bit 2 (HH+OH insieme)
+   3    OH       hi-hat open         bit 2 (insieme a HH)
+   4    HH2      secondo hi-hat      bit 3
+   5    CLAP     clap                bit 4
+   6    PERC1    percussione 1       bit 5
+   7    PERC2    percussione 2       bit 5 (insieme a PERC1)
+   8    PERC3    percussione 3       bit 5 (insieme a PERC1)
+
+Nota: HH e OH condividono il mute (bit 2); PERC1/2/3 condividono il mute
+(bit 5). Il Display deve presentarli come due mute logici, non cinque.
+
+
+--------------------------------------------------------------------------------
+3. VELOCITY — VALORI 0..3
+--------------------------------------------------------------------------------
+
+Tutte le celle dei pattern e dei fill hanno valore:
+
+  0 = silenzio
+  1 = soft
+  2 = medium
+  3 = accent
+
+La GUI deve permettere di ciclare 0→1→2→3→0 con un tap. Se serve
+differenziare visivamente, usare quattro livelli di colore/opacità.
+
+
+--------------------------------------------------------------------------------
+4. PATTERN A 64 STEP — 4 SEZIONI
+--------------------------------------------------------------------------------
+
+Ogni pattern ha 64 step divisi in 4 sezioni da 16:
+
+  Sezione A = step 0..15
+  Sezione B = step 16..31
+  Sezione C = step 32..47
+  Sezione D = step 48..63
+
+La GUI deve mostrare 16 step alla volta (la sezione corrente) e
+permettere di cambiare sezione.
+
+
+--------------------------------------------------------------------------------
+5. FILL — ARRAY SEPARATO
+--------------------------------------------------------------------------------
+
+I fill sono 16 fill indipendenti, ciascuno di 16 step. Non sono legati
+a un pattern: sono un banco separato che si applica una volta e torna
+alla sezione pendente.
+
+
+--------------------------------------------------------------------------------
+6. SONG SEQUENCER — 256 SLOT
+--------------------------------------------------------------------------------
+
+Ogni song è una lista di fino a 256 slot. Ogni slot specifica:
+
+  Tipo:   0=A, 1=B, 2=C, 3=D, 4=fill
+  Numero: per tipo 0..3 = pattern 0..15
+          per tipo 4    = fill 0..15
+
+La GUI deve permettere di costruire e navigare una song come una
+sequenza di blocchi.
+
+
+--------------------------------------------------------------------------------
+7. NUOVI COMANDI LWS (target 'T')
+--------------------------------------------------------------------------------
+
+Formato CMD_PARAM 'S' con [target='T'][key][value].
+
+  Key   Nome             Range                    Note
+  ---   -------------    ----------------------   -------------------------
+  'y'   play mode        0=pattern, 1=song        rifiutato se seqRunning==1
+  's'   song select      0..15                    se in play e song non
+                                                   vuota, riparte da slot 0
+  'o'   section select   0=A, 1=B, 2=C, 3=D       pendente al boundary
+  'i'   fill select      0..15                    pendente
+  'h'   fill trigger     1=trigger                pendente al boundary
+
+
+Echo di stato su 'h' (il Teensy risponde con CMD_PARAM 'S' ['T']['h'][val]):
+
+  0 = idle    (nessun fill)
+  1 = playing (fill in esecuzione)
+  2 = pending (trigger ricevuto, attende boundary)
+
+Il Display può usare questo per animare il pulsante fill.
+
+
+--------------------------------------------------------------------------------
+8. COMANDI ESISTENTI (invariati)
+--------------------------------------------------------------------------------
+
+  Key   Nome              Range
+  ---   ---------------   ---------------------------
+  'R'   run               —
+  'S'   stop              —
+  'N'   pattern select    0..15
+  'K'   kit select        1..16
+  'T'   track select      0..4
+  'X'   sync mode         0=int, 1=SD, 2=ext
+  'd'   drum level        0..20
+  'f'   fx level          0..20
+  'm'   track1 level      0..20
+  't'   track2 level      0..20
+  'u'   track3 level      0..20
+  'b'   bpm               60..250
+  'W'   swing             0..swingMax
+  'M'   mute bitmask      0..63
+  'V'   voice select      1..9
+  'A'   sample number     dipende
+  'L'   voice level       0..20
+  'P'   voice pan         0..100 (100=mono)
+  'I'   rev int level     0..20
+  'e'   fx preset         0..15
+  '1'..'8'  fx params      0..20
+  'Z'   dump status       —
+  'C'   cpu info          —
+
+Comando 'F' (fill count): DEPRECATO — accettato ma ignorato.
+Non usarlo nella GUI.
+
+
+--------------------------------------------------------------------------------
+9. FORMATI FILE SU SD (per riferimento)
+--------------------------------------------------------------------------------
+
+Il Display NON legge direttamente questi file, ma è utile sapere i formati.
+
+  PTN00.BIN..PTN15.BIN           581 B   pattern 9x64 con header+CRC
+  PTN_FILL00.BIN..PTN_FILL15.BIN 149 B   fill 9x16
+  SONG00.BIN..SONG15.BIN         517 B   song 256 slot
+
+I .TXT originali sono ancora presenti come sorgente sul PC, non sul Teensy.
+
+
+--------------------------------------------------------------------------------
+10. COSA SERVE PROGETTARE PER LA GUI
+--------------------------------------------------------------------------------
+
+SCHERMATA PRINCIPALE DEL DRUM SEQUENCER
+  - Griglia 16 step (una sezione) × 9 voci
+  - Celle colorate per velocity (0=scuro, 1/2/3=sfumature crescenti)
+  - Highlight sullo step corrente durante il playback
+    (opzionale: il Teensy non invia lo step corrente, serve polling
+    o estensione del protocollo)
+  - Selettore sezione (A/B/C/D) in alto
+  - Indicatore play mode (Pattern / Song)
+
+CONTROLLI TRASPORTO
+  - Play / Stop ('R' / 'S')
+  - BPM ('b')
+  - Swing ('W')
+  - Pattern select ('N') o Song select ('s')
+  - Play mode toggle ('y')
+
+CONTROLLI FILL
+  - Fill select ('i') con visualizzazione 0..15
+  - Fill trigger ('h') — pulsante che riflette lo stato 0/1/2 dell'echo
+  - Griglia fill 16 step × 9 voci (per editing)
+
+CONTROLLI SONG
+  - Lista slot con tipo (A/B/C/D/F) e numero
+  - Aggiungi/rimuovi/modifica slot
+  - Indicatore posizione corrente (richiede estensione protocollo o
+    polling 'Z')
+
+CONTROLLI KIT
+  - Voice select ('V')
+  - Sample number ('A'), level ('L'), pan ('P'), rev int ('I')
+
+CONTROLLI MUTE
+  - 6 toggle: BD, SD, HH+OH, HH2, CLAP, PERC
+  - Il valore bitmask viene inviato con 'M'
+
+
+--------------------------------------------------------------------------------
+11. PUNTI APERTI DA DECIDERE
+--------------------------------------------------------------------------------
+
+1. Indicatore step corrente: il Teensy non invia lo step corrente via LWS.
+   Due opzioni:
+   (a) Il Display stima lo step in base a BPM e al momento del play
+       (semplice, ma drift possibile).
+   (b) Estendere il protocollo con CMD_TIMELINE 'B' già esistente
+       ([cur_ms][tot_ms]) o un nuovo comando che il Teensy invia a
+       ogni step. Da concordare.
+
+2. Editing della song: la song ha 256 slot, ma la maggior parte sarà
+   vuota. La GUI deve gestire uno scroll su una lista potenzialmente
+   lunga con slot vuoti trailing.
+
+3. Feedback fill in tempo reale: l'echo 'h' è utile ma arriva solo al
+   boundary. Se serve un feedback immediato del trigger, si può
+   mostrare "pending" localmente in attesa dell'eco 2 o 1.
+
+4. Sezione corrente vs. sezione pendente: il Teensy applica i cambi
+   al boundary. La GUI deve mostrare la sezione richiesta come
+   "pending" finché non arriva conferma (via 'Z' o un nuovo echo
+   dedicato).
+
+5. Fill e pattern condividono la stessa griglia? Il fill è 16 step,
+   il pattern è 64 step. La GUI può usare la stessa griglia a 16 step
+   cambiando contesto (pattern sezione vs. fill).
+
+
+--------------------------------------------------------------------------------
+12. CONVENZIONI E VINCOLI
+--------------------------------------------------------------------------------
+
+  - Payload LWS: '&' e '!' sono vietati nel payload.
+  - Baud LWS: 1 Mbps tra Display e Router (Serial1 @ 1 Mbps).
+  - Formato messaggi: come da serial_protocol.h condiviso.
+  - MCU_ID Teensy  = 'T'
+  - MCU_ID Display = 'D'
+  - MCU_ID Router  = 'R'
+
+
+--------------------------------------------------------------------------------
+13. HARDWARE DISPLAY
+--------------------------------------------------------------------------------
+
+  - ESP32-S3, LVGL 800x480.
+  - SD preset con formato binario K-V:
+        [version][key][len][value...]...[0xFF][crc8]
+  - Serial1 @ 1 Mbps verso il Router.
+  - Cache locale: PresetCache cacheA[5] per SynthA, cacheB per SynthB.
+
+
+--------------------------------------------------------------------------------
+14. PROSSIMI PASSI SUGGERITI
+--------------------------------------------------------------------------------
+
+  1. Decidere il layout visivo della schermata drum.
+  2. Decidere se estendere il protocollo per inviare lo step corrente
+     (punto 1 sopra).
+  3. Progettare la pagina song editor (lista slot).
+  4. Integrare i nuovi comandi ('y', 's', 'o', 'i', 'h') nei controlli
+     esistenti.
+  5. Aggiornare il Python generator preset se serve (non per pattern,
+     che sono gestiti dallo script convert_ptn.py).
+
+
+================================================================================
+FINE NOTA DI CONTINUITÀ
+================================================================================

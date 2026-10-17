@@ -140,7 +140,7 @@ extern uint8_t sliderColorDepth;
 // viene ricreato ogni volta che la pagina che lo ospita viene ricostruita.
 extern lv_obj_t *pot_container;
 // ========================== PRESET ARRAY ==========================
-#include "src/preset/preset_sd.h"    // porta MAX_PRESET, PRESET_NAME_LEN
+#include "preset/preset_sd.h"    // porta MAX_PRESET, PRESET_NAME_LEN
 
 // Indici correnti (0..29)
 extern int presetNumA;
@@ -302,8 +302,8 @@ lv_obj_t* create_timeline_controls(lv_obj_t *parent, int x, int y);
 
 void update_timeline(uint32_t cur_ms, uint32_t tot_ms);
 // ========================== PRESET — API per la UI ==========================
-#include "src/preset/preset_sd.h"
-#include "src/preset/preset_cache.h"  
+#include "preset/preset_sd.h"
+#include "preset/preset_cache.h"  
  // <-- aggiunto per presetCacheClearAll()
 // Wrapper che la UI chiama. Le implementazioni stanno nel .ino e usano
 // il modulo src/preset/. Cosi' i file UI non devono includere

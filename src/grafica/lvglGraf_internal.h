@@ -290,4 +290,9 @@ extern uint8_t fmSetDiv[8][3];
 void fmEdit_page_create(lv_obj_t *parent, bool isA);
 void fmEdit_reset_pointers();
 void fmEdit_update_plot();       // ridisegna il plotter col preset corrente
+// ============================================================
+// LFO B (in lvglGrafLfoB.cpp) — SynthB LFO3
+// ============================================================
+void lfoB_page_create(lv_obj_t *parent);
+void lfoB_reset_pointers();
 #endif

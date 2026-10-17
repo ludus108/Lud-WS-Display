@@ -1,7 +1,7 @@
 #include "comunicazioni.h"
 #include <string.h>
-#include "src/grafica/lvglGraf.h"
-#include "src/grafica/lvglGraf_internal.h"
+#include "grafica/lvglGraf.h"
+#include "grafica/lvglGraf_internal.h"
 // =========================================================================
 // comunicazioni.cpp — Implementazione LWSv1.1 (Display)
 // =========================================================================

@@ -1,0 +1,10 @@
+{
+    "recommendations": [
+        "Jason2866.esp-decoder",
+        "platformio.platformio-ide"
+    ],
+    "unwantedRecommendations": [
+        "ms-vscode.cpptools-extension-pack",
+        "pioarduino.pioarduino-ide"
+    ]
+}
