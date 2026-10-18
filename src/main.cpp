@@ -230,7 +230,45 @@ void reset_GT911() {
   delay(100);
 }
 
+void dumpStatus() {
+    // ===== HEADER =====
+    Serial.println("[DUMP] ========== DISPLAY STATUS ==========");
+    Serial.printf("[DUMP] fw=%s\n", last_version);
+    Serial.printf("[DUMP] uptime=%lu ms\n", millis());
 
+    // ===== SYSTEM =====
+    Serial.println("[DUMP] --- SYSTEM ---");
+    Serial.printf("[DUMP] bright=%u\n", g.bright);
+    Serial.printf("[DUMP] free_heap=%u bytes\n", ESP.getFreeHeap());
+    Serial.printf("[DUMP] psram_free=%u bytes\n",
+                  ESP.getFreePsram() ? ESP.getFreePsram() : 0);
+    Serial.printf("[DUMP] sd_ok=%d\n", (SD.cardType() != CARD_NONE));
+
+    // ===== LWS =====
+    Serial.println("[DUMP] --- LWS ---");
+    Serial.printf("[DUMP] tx_seq=%u\n", lws_get_tx_seq());
+    Serial.printf("[DUMP] discovery_active=%d\n", discovery_active());
+
+    // ===== PRESET =====
+    Serial.println("[DUMP] --- PRESET ---");
+    Serial.printf("[DUMP] presetNumA=%d presetNumB=%d\n", presetNumA, presetNumB);
+    Serial.printf("[DUMP] pendingPresetA=%d pendingPresetB=%d\n",
+                  pendingPresetA, pendingPresetB);
+
+    // ===== MCU =====
+    Serial.println("[DUMP] --- MCU DISCOVERY ---");
+    // Adatta ai tuoi simboli reali: presumo tu abbia una funzione che
+    // restituisce lo stato di ogni MCU scoperto
+    // Serial.printf("[DUMP] mcu_R=%d mcu_T=%d mcu_a=%d ...\n", ...);
+
+    // ===== FOOTER =====
+    Serial.println("[DUMP] ==========================================");
+
+    // Opzionale: mostra a schermo le prime info
+    char buf[64];
+    snprintf(buf, sizeof(buf), "DUMP: heap=%u", ESP.getFreeHeap());
+    log_add(buf, lv_color_hex(0x00AAFF));
+}
 // ========================== SETUP ==========================
 void setup() {
   Serial.begin(115200);
@@ -316,6 +354,11 @@ void setup() {
 
 // ========================== LOOP ==========================
 void loop() {
+	// Comando locale: invia '?' su USB seriale per dump
+if (Serial.available()) {
+    char c = Serial.read();
+    if (c == '?') dumpStatus();
+}
   // RX LWSv1 dal Router
   if (Serial1.available() > 0) leggiSer();
   // State machine discovery (un ping per ciclo, early-exit se tutti rispondono)

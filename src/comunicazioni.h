@@ -50,7 +50,7 @@ void send_error(char target, const char *error_msg);
 char targetForVoice(uint8_t voice);
 // --- SEQ TX (usata anche da preset_transfer.h) ---
 uint8_t next_seq();
-
+uint8_t lws_get_tx_seq();
 // --- RX + polling ---
 void leggiSer();
 void com_poll();

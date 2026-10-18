@@ -51,6 +51,7 @@ static LwsParser lwsDisplayParser;
 // ========================== SEQ + PENDING ACK ==========================
 static uint8_t g_tx_seq = 0;
 uint8_t next_seq() { return g_tx_seq++; }
+uint8_t lws_get_tx_seq() { return g_tx_seq; }   // ← aggiungi questa
 
 #define PENDING_MAX     8
 #define ACK_TIMEOUT_MS  300

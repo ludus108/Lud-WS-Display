@@ -41,12 +41,7 @@ Thumbs.db
 *.code-workspace
 
 # ==========================
-# SD CARD DATA (dati runtime)
-# ==========================
-/data/
-/sd/
-
-# ==========================
 # FILE DI CONFIGURAZIONE LOCALE
 # ==========================
 # (aggiungi qui eventuali file con path assoluti personali)
+/.vscode
